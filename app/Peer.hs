@@ -1,11 +1,13 @@
-module Peer 
+module Peer
   ( getSocketHandle,
-	waitForBitfield,
-	waitForUnchoke,
-	sendInterested,
-	getPiece,
+    waitForBitfield,
+    waitForUnchoke,
+    sendInterested,
+    getPiece,
   )
 where
+
+import Control.Monad (when)
 import Data.Bits (shiftL)
 import Data.ByteString (ByteString, foldl', fromStrict, hPut, pack, split)
 import Data.ByteString.Builder (int32BE, toLazyByteString)
@@ -48,29 +50,26 @@ waitForUnchoke handle = waitForXDiscardMessage handle 1
 waitForXDiscardMessage :: Handle -> Int -> IO ()
 waitForXDiscardMessage handle x = do
   prefix <- B.hGet handle 4
-  let length = hexByteStringToInt prefix
-  if length == 0
+  let len = hexByteStringToInt prefix
+  if len == 0
     then waitForXDiscardMessage handle x
     else do
-      message <- B.hGet handle length
-      if hexByteStringToInt (B.singleton $ B.head message) == x
-        then return ()
-        else waitForXDiscardMessage handle x
+      message <- B.hGet handle len
+      if hexByteStringToInt (B.singleton $ B.head message) == x then return () else waitForXDiscardMessage handle x
 
 waitForX :: Handle -> Int -> IO Int
 waitForX handle x = do
   prefix <- B.hGet handle 4
-  let length = hexByteStringToInt prefix
-  if length == 0
+  let len = hexByteStringToInt prefix
+  if len == 0
     then waitForX handle x
     else do
       message <- B.hGet handle 1
-      if hexByteStringToInt (B.singleton $ B.head message) == x
-        then return length
-        else waitForX handle x
+      if hexByteStringToInt (B.singleton $ B.head message) == x then return len else waitForX handle x
 
 sendInterested :: Handle -> IO ()
 sendInterested handle = do
+  -- TODO use Megaparsec to construct message
   B.hPut handle $ B.concat [padWithZeros $ B.toStrict $ LB.singleton (1 :: Word8), B.toStrict $ LB.singleton (2 :: Word8)]
   hFlush handle
 
@@ -83,6 +82,7 @@ hexByteStringToInt = foldl' step 0
 
 requestBlock :: Handle -> Int -> Int -> Int -> IO ()
 requestBlock handle pieceIndex blockIndex blockLength = do
+  -- TODO use Megaparsec to construct message
   B.hPut handle $
     B.concat
       [ padWithZeros $ B.toStrict $ LB.singleton (13 :: Word8),
@@ -115,7 +115,7 @@ receiveBlock handle pieceIndex blockOffset blockLength outputFile = do
   requestBlock handle pieceIndex blockOffset blockLength
 
   print "waiting for 7"
-  length <- waitForX handle 7
+  _ <- waitForX handle 7
   print "received 7"
   consume handle 4 -- pieceIndexResponse
   consume handle 4 -- blockBeginResponse
@@ -125,7 +125,7 @@ receiveBlock handle pieceIndex blockOffset blockLength outputFile = do
 
 consume :: Handle -> Int -> IO ()
 consume handle x = do
-  void <- B.hGet handle x
+  _ <- B.hGet handle x
   return ()
 
 getPiece :: Handle -> Int -> Int -> String -> Int -> IO ()
@@ -143,13 +143,9 @@ getPiece handle pieceIndex pieceLength outputPath fileLength = do
 
   let blockLengths = replicate numBlocks blockLength
 
-
   -- request all blocks with normal length
-  blocks <- mapM (\i -> receiveBlock handle pieceIndex (blockLength * i) (blockLengths !! i) outputPath) blockIndices
+  mapM_ (\i -> receiveBlock handle pieceIndex (blockLength * i) (blockLengths !! i) outputPath) blockIndices
 
   -- request final block if length is unusual
   -- TODO: validate hash of downloaded piece
-  if lastBlockLength > 0
-    then receiveBlock handle pieceIndex (blockLength * (numBlocks)) lastBlockLength outputPath
-    else return ()
-
+  when (lastBlockLength > 0) $ receiveBlock handle pieceIndex (blockLength * numBlocks) lastBlockLength outputPath
