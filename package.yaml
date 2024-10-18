@@ -24,6 +24,19 @@ dependencies:
 - brick
 - vty >= 6.0
 - vty-unix
+- containers
+- aeson
+- bytestring
+- network
+- async
+- time
+- megaparsec
+- parsec
+- parser-combinators
+- base16-bytestring
+- cryptohash-sha1
+- http-conduit
+- network-simple
 
 ghc-options:
 - -Wall
