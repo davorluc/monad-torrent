@@ -36,8 +36,21 @@ library
       src
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints
   build-depends:
-      base >=4.7 && <5
+      aeson
+    , async
+    , base >=4.7 && <5
+    , base16-bytestring
     , brick
+    , bytestring
+    , containers
+    , cryptohash-sha1
+    , http-conduit
+    , megaparsec
+    , network
+    , network-simple
+    , parsec
+    , parser-combinators
+    , time
     , vty >=6.0
     , vty-unix
   default-language: Haskell2010
@@ -45,6 +58,9 @@ library
 executable monad-torrent-exe
   main-is: Main.hs
   other-modules:
+      Decoder
+      Peer
+      Torrent
       Paths_monad_torrent
   autogen-modules:
       Paths_monad_torrent
@@ -52,9 +68,22 @@ executable monad-torrent-exe
       app
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
   build-depends:
-      base >=4.7 && <5
+      aeson
+    , async
+    , base >=4.7 && <5
+    , base16-bytestring
     , brick
+    , bytestring
+    , containers
+    , cryptohash-sha1
+    , http-conduit
+    , megaparsec
     , monad-torrent
+    , network
+    , network-simple
+    , parsec
+    , parser-combinators
+    , time
     , vty >=6.0
     , vty-unix
   default-language: Haskell2010
@@ -70,9 +99,22 @@ test-suite monad-torrent-test
       test
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
   build-depends:
-      base >=4.7 && <5
+      aeson
+    , async
+    , base >=4.7 && <5
+    , base16-bytestring
     , brick
+    , bytestring
+    , containers
+    , cryptohash-sha1
+    , http-conduit
+    , megaparsec
     , monad-torrent
+    , network
+    , network-simple
+    , parsec
+    , parser-combinators
+    , time
     , vty >=6.0
     , vty-unix
   default-language: Haskell2010
