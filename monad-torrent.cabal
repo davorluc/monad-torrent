@@ -26,8 +26,6 @@ source-repository head
   location: https://github.com/githubuser/monad-torrent
 
 library
-  exposed-modules:
-      Lib
   other-modules:
       Paths_monad_torrent
   autogen-modules:
