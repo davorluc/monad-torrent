@@ -67,7 +67,7 @@ theMap :: A.AttrMap
 theMap =
   A.attrMap
     V.defAttr
-    [ (D.dialogAttr, V.white `on` V.blue),
+    [ (D.dialogAttr, V.white `on` V.black),
       (D.buttonAttr, V.black `on` V.white),
       (D.buttonSelectedAttr, bg V.yellow)
     ]
