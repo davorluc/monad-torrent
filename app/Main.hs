@@ -1,18 +1,14 @@
 module Main (main) where
 
--- import Decoder
-
 -- import Network.HTTP.Simple
 -- import Network.Simple.TCP (connect)
 -- import Network.Socket
--- import Control.Monad (void, when)
+
 -- import System.Environment (getArgs)
 -- import System.Exit
 -- import System.IO
 -- import Data.List (intercalate)
--- import Data.Map ((!))
--- import qualified Data.ByteString.Char8 as B
--- import qualified Data.ByteString.Lazy as LB
+
 -- import Data.ByteString.Base16 as B16
 -- import Peer
 
@@ -26,6 +22,12 @@ import qualified Brick.Widgets.Border.Style as BS
 import qualified Brick.Widgets.Center as C
 import qualified Brick.Widgets.Core as C
 import qualified Brick.Widgets.Dialog as D
+import Control.Monad (void, when)
+import Control.Monad.IO.Class (liftIO)
+import qualified Data.ByteString.Char8 as B
+import qualified Data.ByteString.Lazy as LB
+import Data.Map as M
+import Decoder
 import qualified Graphics.Vty as V
 import Torrent
 
@@ -39,21 +41,36 @@ data Name
   | WhiteButton
   deriving (Show, Eq, Ord)
 
-drawUI :: D.Dialog Choice Name -> [Widget Name]
-drawUI d = [ui]
+data AppState = AppState
+  { appDialog :: D.Dialog Choice Name,
+    appContent :: String -- To store the content displayed in the dialog
+  }
+
+drawUI :: AppState -> [Widget Name]
+drawUI state = [ui]
   where
-    ui = D.renderDialog d $ C.hCenter $ padAll 1 $ str "Choose an action."
+    contentWidget = C.hCenter . padAll 1 . str $ appContent state
+    ui = D.renderDialog (appDialog state) contentWidget
 
-appEvent :: BrickEvent Name e -> T.EventM Name (D.Dialog Choice Name) ()
-appEvent (VtyEvent ev) =
+appEvent :: BrickEvent Name e -> EventM Name AppState ()
+appEvent (VtyEvent ev) = do
+  currentState <- get 
   case ev of
-    V.EvKey V.KEsc [] -> BR.halt
-    V.EvKey V.KEnter [] -> BR.halt
-    _ -> D.handleDialogEvent ev
-appEvent _ = return ()
+    V.EvKey (V.KChar 'i') [] -> do  -- Handle 'i' key press
+      torrentInfo <- liftIO loadTorrentInfo
+      modify $ \s -> s { appContent = torrentInfo }
+    -- Other event handling ... (like handling dialog events)
+    _ -> do
+      updatedDialog <- nestEventM' (appDialog currentState) (D.handleDialogEvent ev)
+      modify $ \s -> s { appDialog = updatedDialog } 
 
-initialState :: D.Dialog Choice Name
-initialState = D.dialog (Just $ str "Torrent operation") (Just (DecodeButton, choices)) 50
+
+initialState :: AppState
+initialState =
+  AppState
+    { appDialog = D.dialog (Just $ str "Torrent operation") (Just (DecodeButton, choices)) 50,
+      appContent = "Choose an action." -- Default content
+    }
   where
     choices =
       [ ("decode", DecodeButton, Red),
@@ -72,12 +89,12 @@ theMap =
       (D.buttonSelectedAttr, bg V.yellow)
     ]
 
-theApp :: BR.App (D.Dialog Choice Name) e Name
+theApp :: BR.App AppState e Name
 theApp =
   BR.App
     { BR.appDraw = drawUI,
       BR.appChooseCursor = BR.showFirstCursor,
-      BR.appHandleEvent = appEvent,
+      BR.appHandleEvent = appEvent, -- Ensure correct capitalization
       BR.appStartEvent = return (),
       BR.appAttrMap = const theMap
     }
@@ -131,10 +148,27 @@ byob =
 ui :: Widget ()
 ui = C.vBox [box2, byob]
 
+loadTorrentInfo :: IO String
+loadTorrentInfo = do
+  let filePath = "./sample.torrent"
+  fileContent <- LB.readFile filePath
+  let decoded = decodeBencodedValue (B.concat $ LB.toChunks fileContent)
+  let json = decodedToDictionary decoded
+  let info = decodedToDictionary (json M.! B.pack "info")
+  let trackerUrl = B.unpack $ decodedToByteString (json M.! B.pack "announce")
+  let pieceLength = show (info M.! B.pack "piece length")
+  let fileLength = show (info M.! B.pack "length")
+  return $
+    unlines
+      [ "Tracker URL: " ++ trackerUrl,
+        "Piece Length: " ++ pieceLength,
+        "File Length: " ++ fileLength
+      ]
+
 main :: IO ()
 main = do
-  d <- BR.defaultMain theApp initialState
-  putStrLn $ "You chose: " <> show (D.dialogSelection d)
+  finalState <- BR.defaultMain theApp initialState 
+  putStrLn $ "You chose: " <> show (D.dialogSelection (appDialog finalState)) 
 
 -- do
 -- args <- getArgs

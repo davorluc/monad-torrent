@@ -50,7 +50,7 @@ ghc-options:
 - -Wredundant-constraints
 
 library:
-  source-dirs: src
+  source-dirs: app
 
 executables:
   monad-torrent-exe:

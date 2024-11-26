@@ -26,12 +26,17 @@ source-repository head
   location: https://github.com/githubuser/monad-torrent
 
 library
+  exposed-modules:
+      Decoder
+      Main
+      Peer
+      Torrent
   other-modules:
       Paths_monad_torrent
   autogen-modules:
       Paths_monad_torrent
   hs-source-dirs:
-      src
+      app
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints
   build-depends:
       aeson
