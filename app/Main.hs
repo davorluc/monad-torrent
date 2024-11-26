@@ -28,8 +28,8 @@ import System.Exit
 import System.IO
 import Torrent
 
-data Choice = Red | Blue | Green | White
-  deriving (Show)
+-- Application State
+type AppState = ()
 
 data Name
   = DecodeButton
@@ -116,54 +116,30 @@ theApp =
       BR.appAttrMap = const theMap
     }
 
-doubleHorizontal :: BS.BorderStyle
-doubleHorizontal =
-  BS.BorderStyle
-    { BS.bsCornerTL = '╒',
-      BS.bsCornerTR = '╕',
-      BS.bsCornerBR = '╛',
-      BS.bsCornerBL = '╘',
-      BS.bsIntersectL = '╞',
-      BS.bsIntersectR = '╡',
-      BS.bsIntersectT = '╤',
-      BS.bsIntersectB = '╧',
-      BS.bsIntersectFull = '╪',
-      BS.bsHorizontal = '═',
-      BS.bsVertical = '│'
-    }
+startEvent :: EventM n s ()
+startEvent = return ()
 
-box2 :: Widget ()
-box2 =
-  C.freezeBorders $
-    C.vBox
-      [ C.hBox
-          [ C.vLimit 3 B.vBorder,
-            C.str "Resize horizontally to\nmove across the label\nbelow",
-            C.vLimit 3 B.vBorder
-          ],
-        B.borderWithLabel (B.vBorder C.<+> C.str " Label " C.<+> B.vBorder) $
-          C.hBox
-            [ C.str "               ",
-              C.vBox [B.vBorder, C.str "L\na\nb\ne\nl", C.vLimit 3 B.vBorder],
-              C.str "\n\n\n Resize vertically to\n move across the label\n to the left\n\n\n\n\n" C.<=> B.hBorder
-            ]
-      ]
+-- Draw the UI
+drawUI :: AppState -> [Widget ()]
+drawUI _ =
+  [ center $ str "Press 'q' to quit, 'm' for menu, 's' for save, 'Esc' to quit.",
+    hBorder,
+    center $ str "Bottom Menu: [q: Quit] [m: Menu] [s: Save] [Esc: Quit]"
+  ]
 
--- BYOB: build your own border
-byob :: Widget ()
-byob =
-  C.vBox
-    [ C.hBox [corner, top, corner],
-      C.vLimit 6 $ C.hBox [B.vBorder, mid, B.vBorder],
-      C.hBox [corner, B.hBorder, corner]
-    ]
-  where
-    top = B.hBorderWithLabel (C.str "BYOB")
-    mid = C.center (C.str "If `border` is too easy,\nyou can build it yourself")
-    corner = B.joinableBorder (pure False)
+-- Handle Events
+handleEvent :: BrickEvent n e -> EventM n AppState ()
+handleEvent (VtyEvent (EvKey (KChar 'q') [])) = halt
+handleEvent (VtyEvent (EvKey KEsc [])) = halt
+handleEvent (VtyEvent (EvKey (KChar 'm') [])) = do
+  liftIO $ putStrLn "Menu key pressed!"
+handleEvent (VtyEvent (EvKey (KChar 's') [])) = do
+  liftIO $ putStrLn "Save key pressed!"
+handleEvent _ = return ()
 
-ui :: Widget ()
-ui = C.vBox [box2, byob]
+-- Attribute Map
+theMap :: AttrMap
+theMap = attrMap defAttr []
 
 loadTorrentInfo :: IO String
 loadTorrentInfo = do
