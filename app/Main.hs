@@ -1,17 +1,5 @@
 module Main (main) where
 
--- import Network.HTTP.Simple
--- import Network.Simple.TCP (connect)
--- import Network.Socket
-
--- import System.Environment (getArgs)
--- import System.Exit
--- import System.IO
--- import Data.List (intercalate)
-
--- import Data.ByteString.Base16 as B16
--- import Peer
-
 import Brick as BR
 import qualified Brick as M
 import qualified Brick.AttrMap as A
@@ -24,11 +12,20 @@ import qualified Brick.Widgets.Core as C
 import qualified Brick.Widgets.Dialog as D
 import Control.Monad (void, when)
 import Control.Monad.IO.Class (liftIO)
+import Data.ByteString.Base16 as B16
 import qualified Data.ByteString.Char8 as B
 import qualified Data.ByteString.Lazy as LB
+import Data.List (intercalate)
 import Data.Map as M
 import Decoder
 import qualified Graphics.Vty as V
+import Network.HTTP.Simple
+import Network.Simple.TCP (connect)
+import Network.Socket
+import Peer
+import System.Environment (getArgs)
+import System.Exit
+import System.IO
 import Torrent
 
 data Choice = Red | Blue | Green | White
@@ -43,33 +40,53 @@ data Name
 
 data AppState = AppState
   { appDialog :: D.Dialog Choice Name,
-    appContent :: String -- To store the content displayed in the dialog
+    appContent :: [String]
   }
 
 drawUI :: AppState -> [Widget Name]
 drawUI state = [ui]
   where
-    contentWidget = C.hCenter . padAll 1 . str $ appContent state
+    contentWidget =
+      C.hCenter . padAll 1 $
+        C.vBox $
+          if Prelude.null (appContent state)
+            then [C.str "No content found."]
+            else
+              [ C.hBox [C.padRight (C.Pad 1) (C.str line)]
+                | line <- appContent state
+              ]
     ui = D.renderDialog (appDialog state) contentWidget
 
 appEvent :: BrickEvent Name e -> EventM Name AppState ()
 appEvent (VtyEvent ev) = do
-  currentState <- get 
+  currentState <- get
   case ev of
-    V.EvKey (V.KChar 'i') [] -> do  -- Handle 'i' key press
+    V.EvKey (V.KChar 'i') [] -> do
       torrentInfo <- liftIO loadTorrentInfo
-      modify $ \s -> s { appContent = torrentInfo }
-    -- Other event handling ... (like handling dialog events)
+      modify $ \s -> s {appContent = ["Torrent Info: " ++ torrentInfo]}
+    V.EvKey (V.KChar 'p') [] -> do
+      let filePath = "./sample.torrent"
+      fileContent <- liftIO $ LB.readFile filePath
+      let decoded = decodeBencodedValue (B.concat $ LB.toChunks fileContent)
+      let json = decodedToDictionary decoded
+      let query = makeQuery json
+      request <- liftIO $ parseRequest query
+      response <- liftIO $ httpLBS request
+      let peersBytes = decodedToDictionary (decodeBencodedValue $ LB.toStrict $ getResponseBody response) ! B.pack "peers"
+      let peersList = peersToAddressList $ decodedToByteString peersBytes
+      let formattedPeers = zipWith (\i peer -> "Peer " ++ show i ++ ": " ++ B.unpack peer) [1 ..] peersList
+      modify $ \s -> s {appContent = formattedPeers}
+    V.EvKey (V.KChar 'q') [] -> do
+      BR.halt
     _ -> do
       updatedDialog <- nestEventM' (appDialog currentState) (D.handleDialogEvent ev)
-      modify $ \s -> s { appDialog = updatedDialog } 
-
+      modify $ \s -> s {appDialog = updatedDialog}
 
 initialState :: AppState
 initialState =
   AppState
     { appDialog = D.dialog (Just $ str "Torrent operation") (Just (DecodeButton, choices)) 50,
-      appContent = "Choose an action." -- Default content
+      appContent = ["Choose an action."] -- Default content
     }
   where
     choices =
@@ -167,8 +184,8 @@ loadTorrentInfo = do
 
 main :: IO ()
 main = do
-  finalState <- BR.defaultMain theApp initialState 
-  putStrLn $ "You chose: " <> show (D.dialogSelection (appDialog finalState)) 
+  finalState <- BR.defaultMain theApp initialState
+  putStrLn $ "You chose: " <> show (D.dialogSelection (appDialog finalState))
 
 -- do
 -- args <- getArgs
