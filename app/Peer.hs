@@ -13,6 +13,7 @@ import Data.ByteString (ByteString, foldl', fromStrict, hPut, pack, split)
 import Data.ByteString.Builder (int32BE, toLazyByteString)
 import qualified Data.ByteString.Char8 as B
 import qualified Data.ByteString.Lazy as LB
+import qualified Data.ByteString.Base16 as B16
 import Data.Char (chr, ord)
 import Data.Int (Int32)
 import Data.Map ((!))
@@ -143,14 +144,14 @@ downloadFile :: Torrent -> IO ()
 downloadFile torrent = do
   --TODO access torrent fields
   let peerAdress = head $ (peers torrent)
-  handle <- getReadyHandle peerAddress infoHash
+  handle <- getReadyHandle peerAddress (infoHash torrent)
 
-  let pieces = map (\i -> getPiece handle i pieceLength fileLength) pieceIndices
+  let pieces = map (\i -> getPiece handle i (pieceLength torrent) (fileLength torrent)) pieceIndices
   piecesContent <- sequence pieces
 
   let piecesHashes = map calculateHash piecesContent
   let piecesHashesHex = map B16.encode piecesHashes
-  let piecesHashesExpected = getPieces $ decodedToByteString (info ! "pieces")
+  let piecesHashesExpected = (pieceHashes torrent)
   let piecesHashesExpectedHex = map B16.encode piecesHashesExpected
   if all (== True) $ zipWith (==) piecesHashesHex piecesHashesExpectedHex
     then putStrLn "All pieces hashes match!"

@@ -26,9 +26,9 @@ data Torrent = Torrent
     pieceHashes :: [ByteString],
     fileLength :: Int,
     pieceLength :: Int
-  }
+  } deriving (Show)
 
-newtype PeerAddresses = PeerAddresses [(ByteString, ByteString)]
+newtype PeerAddresses = PeerAddresses [(ByteString, ByteString)] deriving (Show)
 
 -- splitBy2 :: ByteString -> [ByteString]
 -- splitBy2 x = if B.length x >= 2 then two : splitBy2 rest else []
