@@ -8,9 +8,10 @@ module Torrent
     peersToAddressList,
     addressToIPAndPort,
     parsePort,
-    Torrent,
+    TorrentType (..),
   )
 where
+
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as B
 import Data.Char (ord)
@@ -19,16 +20,15 @@ import Data.Map.Internal ((!))
 import Decoder (DecodedValue, decodedToByteString, decodedToDictionary, generateURLEncodedInfoHash, sortInfo, toBencodedByteString)
 import Prelude
 
-data Torrent = Torrent
-  { filename :: ByteString,
-    peers :: PeerAddresses,
+data TorrentType = TorrentType
+  { outputpath :: ByteString,
+    peers :: [(ByteString, ByteString)],
     infoHash :: ByteString,
     pieceHashes :: [ByteString],
     fileLength :: Int,
     pieceLength :: Int
-  } deriving (Show)
-
-newtype PeerAddresses = PeerAddresses [(ByteString, ByteString)] deriving (Show)
+  }
+  deriving (Show)
 
 -- splitBy2 :: ByteString -> [ByteString]
 -- splitBy2 x = if B.length x >= 2 then two : splitBy2 rest else []

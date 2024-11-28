@@ -32,7 +32,6 @@ module Decoder
     calculateHash,
     calculateHexHash,
     generateURLEncodedInfoHash,
-    
   )
 where
 

@@ -10,10 +10,10 @@ where
 import Control.Monad (when)
 import Data.Bits (shiftL)
 import Data.ByteString (ByteString, foldl', fromStrict, hPut, pack, split)
+import qualified Data.ByteString.Base16 as B16
 import Data.ByteString.Builder (int32BE, toLazyByteString)
 import qualified Data.ByteString.Char8 as B
 import qualified Data.ByteString.Lazy as LB
-import qualified Data.ByteString.Base16 as B16
 import Data.Char (chr, ord)
 import Data.Int (Int32)
 import Data.Map ((!))
@@ -32,7 +32,7 @@ import Network.Socket
     socket,
     socketToHandle,
   )
-import Torrent ( Torrent ) 
+import Torrent
 
 getSocketHandle :: ByteString -> ByteString -> ByteString -> IO Handle
 getSocketHandle ip port infoHash = do
@@ -140,12 +140,13 @@ getReadyHandle peerAddress infoHash = do
   waitForUnchoke handle
   return handle
 
-downloadFile :: Torrent -> IO ()
+downloadFile :: TorrentType -> IO ()
 downloadFile torrent = do
-  --TODO access torrent fields
-  let peerAdress = head $ (peers torrent)
+  -- TODO access torrent fields
+  let peerAddress = head $ (peers torrent)
   handle <- getReadyHandle peerAddress (infoHash torrent)
-
+  let numPieces = fileLength torrent `div` pieceLength torrent
+  let pieceIndices = [0 .. numPieces]
   let pieces = map (\i -> getPiece handle i (pieceLength torrent) (fileLength torrent)) pieceIndices
   piecesContent <- sequence pieces
 
@@ -157,7 +158,7 @@ downloadFile torrent = do
     then putStrLn "All pieces hashes match!"
     else putStrLn "Some pieces hashes do not match!"
 
-  LB.writeFile outputPath (LB.fromStrict $ B.concat piecesContent)
+  LB.writeFile (B.unpack (outputpath torrent)) (LB.fromStrict $ B.concat piecesContent)
 
   putStrLn "All pieces received!"
 
