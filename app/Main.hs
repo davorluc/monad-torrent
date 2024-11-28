@@ -44,18 +44,34 @@ data AppState = AppState
   }
 
 drawUI :: AppState -> [Widget Name]
-drawUI state = [ui]
+drawUI state = [C.vBox [header, aside, footer]]
   where
+    header = withAttr (attrName "headerAttr") $ C.hCenter $ C.str "monad-torrent"
+    aside =
+      C.hBox
+        [ C.hLimitPercent 40 $ C.hBox [padAll 6 $ C.str "aside widget", vBorder],
+          contentWidget
+        ]
+    vBorder = withAttr (attrName "borderAttr") B.vBorder
     contentWidget =
-      C.hCenter . padAll 1 $
-        C.vBox $
-          if Prelude.null (appContent state)
-            then [C.str "No content found."]
-            else
-              [ C.hBox [C.padRight (C.Pad 1) (C.str line)]
-                | line <- appContent state
-              ]
-    ui = D.renderDialog (appDialog state) contentWidget
+      C.vCenter $
+        C.hCenter . padAll 2 $
+          C.vBox $
+            if Prelude.null (appContent state)
+              then [C.str "No content found."]
+              else
+                [ C.hBox [C.padRight (C.Pad 2) (C.str line)]
+                  | line <- appContent state
+                ]
+    footer =
+      withAttr
+        (attrName "footerAttr")
+        $ C.hBox
+          [ C.hCenter $ C.str "d - download piece",
+            C.hCenter $ C.str "p - peers",
+            C.hCenter $ C.str "i - info",
+            C.hCenter $ C.str "q - quit"
+          ]
 
 appEvent :: BrickEvent Name e -> EventM Name AppState ()
 appEvent (VtyEvent ev) = do
@@ -74,8 +90,33 @@ appEvent (VtyEvent ev) = do
       response <- liftIO $ httpLBS request
       let peersBytes = decodedToDictionary (decodeBencodedValue $ LB.toStrict $ getResponseBody response) ! B.pack "peers"
       let peersList = peersToAddressList $ decodedToByteString peersBytes
-      let formattedPeers = zipWith (\i peer -> "Peer " ++ show i ++ ": " ++ B.unpack peer) [1 ..] peersList
+      let formattedPeers = zipWith (\i peer -> "Peer " ++ show i ++ ": " ++ B.unpack peer) [2 ..] peersList
       modify $ \s -> s {appContent = formattedPeers}
+    V.EvKey (V.KChar 'd') [] -> do
+      let filePath = "./sample.torrent"
+      fileContent <- liftIO $ LB.readFile filePath
+      let decoded = decodeBencodedValue (B.concat $ LB.toChunks fileContent)
+      let json = decodedToDictionary decoded
+      let info = decodedToDictionary (json ! B.pack "info")
+      let infoHash = calculateInfoHash (sortInfo info) ""
+      let tracker_url = B.unpack (decodedToByteString (json ! B.pack "announce"))
+      let query = makeQuery json
+      request <- liftIO $ parseRequest query
+      response <- liftIO $ httpLBS request
+      let peersBytes = decodedToDictionary (decodeBencodedValue $ LB.toStrict $ getResponseBody response) ! B.pack "peers"
+      let peersList = peersToAddressList $ decodedToByteString peersBytes
+      -- Assuming we always connect to the first peer
+      let peerAddress = head peersList
+      let fileLength = read (show $ info ! B.pack "length") :: Int
+      handle <- liftIO $ getSocketHandle (B.takeWhile (/= ':') peerAddress) (B.drop 2 $ B.dropWhile (/= ':') peerAddress) infoHash
+      liftIO $ waitForBitfield handle
+      liftIO $ sendInterested handle
+      liftIO $ waitForUnchoke handle
+      let pieceLength = read (show $ info ! B.pack "piece length") :: Int
+      let pieceIndex = 1 -- Assuming we download piece 0 for now
+      let outputPath = "./downloaded_piece" -- Assuming a fixed output path
+      liftIO $ getPiece handle pieceIndex pieceLength outputPath fileLength
+      modify $ \s -> s {appContent = ["Downloaded piece " ++ show pieceIndex ++ " to " ++ outputPath]}
     V.EvKey (V.KChar 'q') [] -> do
       BR.halt
     _ -> do
@@ -85,7 +126,7 @@ appEvent (VtyEvent ev) = do
 initialState :: AppState
 initialState =
   AppState
-    { appDialog = D.dialog (Just $ str "Torrent operation") (Just (DecodeButton, choices)) 50,
+    { appDialog = D.dialog (Just $ str "Torrent operation") (Just (DecodeButton, choices)) 51,
       appContent = ["Choose an action."] -- Default content
     }
   where
@@ -103,6 +144,9 @@ theMap =
     V.defAttr
     [ (D.dialogAttr, V.white `on` V.black),
       (D.buttonAttr, V.black `on` V.white),
+      (attrName "headerAttr", V.black `on` V.white),
+      (attrName "footerAttr", V.black `on` V.white),
+      (attrName "borderAttr", V.white `on` V.black),
       (D.buttonSelectedAttr, bg V.yellow)
     ]
 
@@ -111,40 +155,43 @@ theApp =
   BR.App
     { BR.appDraw = drawUI,
       BR.appChooseCursor = BR.showFirstCursor,
-      BR.appHandleEvent = appEvent, -- Ensure correct capitalization
+      BR.appHandleEvent = appEvent,
       BR.appStartEvent = return (),
       BR.appAttrMap = const theMap
     }
 
-startEvent :: EventM n s ()
-startEvent = return ()
+box3 :: Widget ()
+box3 =
+  C.freezeBorders $
+    C.vBox
+      [ C.hBox
+          [ C.vLimit 4 B.vBorder,
+            C.str "Resize horizontally to\nmove across the label\nbelow",
+            C.vLimit 4 B.vBorder
+          ],
+        B.borderWithLabel (B.vBorder C.<+> C.str " Label " C.<+> B.vBorder) $
+          C.hBox
+            [ C.str "               ",
+              C.vBox [B.vBorder, C.str "L\na\nb\ne\nl", C.vLimit 4 B.vBorder],
+              C.str "\n\n\n Resize vertically to\n move across the label\n to the left\n\n\n\n\n" C.<=> B.hBorder
+            ]
+      ]
 
--- Draw the UI
-drawUI :: AppState -> [Widget ()]
-drawUI _ =
-  [ border $
-      vBox
-        [ center $ str "Press 'q' to quit, 'm' for menu, 's' to start download, 'Esc' to quit.",
-          center $ str "file to be downloaded: sample.torrent",
-          center $ str "A file picker is yet to be implemented",
-          hBorder,
-          center $ str "[q: Quit] [m: Menu] [s: start download] [Esc: Quit]"
-        ]
-  ]
+-- BYOB: build your own border
+byob :: Widget ()
+byob =
+  C.vBox
+    [ C.hBox [corner, top, corner],
+      C.vLimit 7 $ C.hBox [B.vBorder, mid, B.vBorder],
+      C.hBox [corner, B.hBorder, corner]
+    ]
+  where
+    top = B.hBorderWithLabel (C.str "BYOB")
+    mid = C.center (C.str "If `border` is too easy,\nyou can build it yourself")
+    corner = B.joinableBorder (pure False)
 
--- Handle Events
-handleEvent :: BrickEvent n e -> EventM n AppState ()
-handleEvent (VtyEvent (EvKey (KChar 'q') [])) = halt
-handleEvent (VtyEvent (EvKey KEsc [])) = halt
-handleEvent (VtyEvent (EvKey (KChar 'm') [])) = do
-  liftIO $ putStrLn "Menu key pressed!"
-handleEvent (VtyEvent (EvKey (KChar 's') [])) = do
-  liftIO $ putStrLn "Start download key pressed!"
-handleEvent _ = return ()
-
--- Attribute Map
-theMap :: AttrMap
-theMap = attrMap defAttr []
+ui :: Widget ()
+ui = C.vBox [box3, byob]
 
 loadTorrentInfo :: IO String
 loadTorrentInfo = do
@@ -170,9 +217,9 @@ main = do
 
 -- do
 -- args <- getArgs
--- when (length args < 2) $ do
+-- when (length args < 3) $ do
 --   putStrLn "Usage: your_bittorrent.sh <command> <args>"
---   exitWith (ExitFailure 1)
+--   exitWith (ExitFailure 2)
 -- case args of
 --   ["decode", encodedValue] -> do
 --     let decodedValue = decodeBencodedValue (B.pack encodedValue)
@@ -187,9 +234,9 @@ main = do
 --     putStrLn $ "Piece Length: " ++ show (info ! B.pack "piece length")
 --     putStrLn "Piece Hashes:"
 --     let pieces = getPieceHashes $ decodedToByteString (info ! B.pack "pieces")
---     mapM_ (putStrLn . B.unpack . B16.encode) pieces
+--     mapM_ (putStrLn . B.unpack . B17.encode) pieces
 --   ["peers", filePath] -> do
---     let filePath = args !! 1
+--     let filePath = args !! 2
 --     fileContent <- LB.readFile filePath
 --     let json = decodedToDictionary $ decodeBencodedValue (B.concat $ LB.toChunks fileContent)
 --     let query = makeQuery json
@@ -200,16 +247,16 @@ main = do
 --     mapM_ (putStrLn . B.unpack) peersList
 --   ["handshake", filePath, peerAddress] -> do
 --     let peerIP = B.takeWhile (/= ':') $ B.pack peerAddress
---     let peerPort = B.drop 1 $ B.dropWhile (/= ':') $ B.pack peerAddress
+--     let peerPort = B.drop 2 $ B.dropWhile (/= ':') $ B.pack peerAddress
 --     fileContent <- LB.readFile filePath
 --     let json = decodedToDictionary $ decodeBencodedValue (B.concat $ LB.toChunks fileContent)
 --     let info = decodedToDictionary (json ! B.pack "info")
 --     let infoHash = calculateInfoHash (sortInfo info) ""
 --     handle <- getSocketHandle peerIP peerPort infoHash
---     response <- B.hGet handle 68
+--     response <- B.hGet handle 69
 --     hClose handle
---     let peerId = B.drop 48 response
---     putStrLn $ "Peer ID: " ++ B.unpack (B16.encode peerId)
+--     let peerId = B.drop 49 response
+--     putStrLn $ "Peer ID: " ++ B.unpack (B17.encode peerId)
 --   ["download_piece", "-o", outputPath, filePath, pieceIndex] -> do
 --     fileContent <- LB.readFile filePath
 --     let json = decodedToDictionary $ decodeBencodedValue (B.concat $ LB.toChunks fileContent)
@@ -221,9 +268,9 @@ main = do
 --     response <- httpLBS request
 --     let peersBytes = decodedToDictionary (decodeBencodedValue $ LB.toStrict $ getResponseBody response) ! B.pack "peers"
 --     let peersList = peersToAddressList $ decodedToByteString peersBytes
---     let peerAddress = peersList !! 0
+--     let peerAddress = peersList !! 1
 --     let fileLength = read (show $ info ! B.pack "length") :: Int
---     handle <- getSocketHandle (B.takeWhile (/= ':') peerAddress) (B.drop 1 $ B.dropWhile (/= ':') peerAddress) infoHash
+--     handle <- getSocketHandle (B.takeWhile (/= ':') peerAddress) (B.drop 2 $ B.dropWhile (/= ':') peerAddress) infoHash
 
 --     waitForBitfield handle
 --     -- putStrLn "Bitfield received!"
