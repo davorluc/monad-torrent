@@ -122,9 +122,14 @@ startEvent = return ()
 -- Draw the UI
 drawUI :: AppState -> [Widget ()]
 drawUI _ =
-  [ center $ str "Press 'q' to quit, 'm' for menu, 's' for save, 'Esc' to quit.",
-    hBorder,
-    center $ str "Bottom Menu: [q: Quit] [m: Menu] [s: Save] [Esc: Quit]"
+  [ border $
+      vBox
+        [ center $ str "Press 'q' to quit, 'm' for menu, 's' to start download, 'Esc' to quit.",
+          center $ str "file to be downloaded: sample.torrent",
+          center $ str "A file picker is yet to be implemented",
+          hBorder,
+          center $ str "[q: Quit] [m: Menu] [s: start download] [Esc: Quit]"
+        ]
   ]
 
 -- Handle Events
@@ -134,7 +139,7 @@ handleEvent (VtyEvent (EvKey KEsc [])) = halt
 handleEvent (VtyEvent (EvKey (KChar 'm') [])) = do
   liftIO $ putStrLn "Menu key pressed!"
 handleEvent (VtyEvent (EvKey (KChar 's') [])) = do
-  liftIO $ putStrLn "Save key pressed!"
+  liftIO $ putStrLn "Start download key pressed!"
 handleEvent _ = return ()
 
 -- Attribute Map
