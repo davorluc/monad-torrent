@@ -4,6 +4,7 @@ module Peer
     waitForUnchoke,
     sendInterested,
     getPiece,
+    downloadFile,
   )
 where
 
@@ -18,7 +19,7 @@ import Data.Char (chr, ord)
 import Data.Int (Int32)
 import Data.Map ((!))
 import Data.Word (Word8)
-import Decoder
+import Decoder (calculateHash, intToHexByteString, padWithZeros)
 import GHC.IO.Handle
 import GHC.IO.IOMode (IOMode (ReadWriteMode))
 import Network.HTTP.Conduit (parseRequest)
@@ -106,9 +107,9 @@ receiveBlock handle pieceIndex blockOffset blockLength = do
   -- print $ "Requesting block " <> show (blockOffset) <> " of piece " <> show pieceIndex <> " with length " <> show blockLength
   requestBlock handle pieceIndex blockOffset blockLength
 
-  messageLength <- waitForX handle 7
-  pieceIndexResponse <- B.hGet handle 4
-  blockBeginResponse <- B.hGet handle 4
+  _ <- waitForX handle 7 -- message length
+  _ <- B.hGet handle 4 -- piece Index response
+  _ <- B.hGet handle 4 -- block begin response
   B.hGet handle blockLength
 
 getPiece :: Handle -> Int -> Int -> Int -> IO ByteString
@@ -134,16 +135,16 @@ getPiece handle pieceIndex pieceLength fileLength = do
 getReadyHandle :: (ByteString, ByteString) -> ByteString -> IO Handle
 getReadyHandle peerAddress infoHash = do
   handle <- getSocketHandle (fst peerAddress) (snd peerAddress) infoHash
-  peerHandshakeResponse <- B.hGet handle 68 -- peer handshake
+  _ <- B.hGet handle 68 -- peer handshake response
   waitForBitfield handle
   sendInterested handle
   waitForUnchoke handle
   return handle
 
-downloadFile :: TorrentType -> IO ()
+downloadFile :: TorrentType -> IO Bool
 downloadFile torrent = do
-  -- TODO access torrent fields
-  let peerAddress = head $ (peers torrent)
+  let peerAddress = head $ peers torrent
+
   handle <- getReadyHandle peerAddress (infoHash torrent)
   let numPieces = fileLength torrent `div` pieceLength torrent
   let pieceIndices = [0 .. numPieces]
@@ -154,12 +155,16 @@ downloadFile torrent = do
   let piecesHashesHex = map B16.encode piecesHashes
   let piecesHashesExpected = (pieceHashes torrent)
   let piecesHashesExpectedHex = map B16.encode piecesHashesExpected
-  if all (== True) $ zipWith (==) piecesHashesHex piecesHashesExpectedHex
-    then putStrLn "All pieces hashes match!"
-    else putStrLn "Some pieces hashes do not match!"
 
-  LB.writeFile (B.unpack (outputpath torrent)) (LB.fromStrict $ B.concat piecesContent)
+  -- do check for each piece hash
+  -- apply do while loop, if there is a mismatch, request the piece from a different peer
+  -- write successful pieces to file with offset = pieceIndex * pieceLength
+  LB.writeFile (B.unpack (outputPath torrent)) (LB.fromStrict $ B.concat piecesContent)
 
-  putStrLn "All pieces received!"
+  -- putStrLn "All pieces received!"
 
   hClose handle
+
+  if and $ zipWith (==) piecesHashesHex piecesHashesExpectedHex
+    then return True
+    else return False

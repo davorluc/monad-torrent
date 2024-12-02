@@ -1,3 +1,5 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 module Torrent
   ( -- generateURLEncodedInfoHash,
     -- calculateInfoHash,
@@ -5,48 +7,33 @@ module Torrent
     -- calculateHexHash,
     getPieceHashes,
     makeQuery,
-    peersToAddressList,
     addressToIPAndPort,
     parsePort,
+    readTorrentFile,
     TorrentType (..),
   )
 where
 
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as B
+import qualified Data.ByteString.Lazy as LB
 import Data.Char (ord)
 import Data.Map (Map)
 import Data.Map.Internal ((!))
-import Decoder (DecodedValue, decodedToByteString, decodedToDictionary, generateURLEncodedInfoHash, sortInfo, toBencodedByteString)
+import Decoder (DecodedValue, calculateInfoHash, decodeBencodedValue, decodedToByteString, decodedToDictionary, generateURLEncodedInfoHash, getPieces, sortInfo, toBencodedByteString)
+import Network.HTTP.Simple (getResponseBody, httpLBS, parseRequest)
 import Prelude
 
 data TorrentType = TorrentType
-  { outputpath :: ByteString,
-    peers :: [(ByteString, ByteString)],
+  { outputPath :: ByteString,
     infoHash :: ByteString,
     pieceHashes :: [ByteString],
     fileLength :: Int,
-    pieceLength :: Int
+    pieceLength :: Int,
+    trackerUrl :: ByteString,
+    peers :: [(ByteString, ByteString)]
   }
   deriving (Show)
-
--- splitBy2 :: ByteString -> [ByteString]
--- splitBy2 x = if B.length x >= 2 then two : splitBy2 rest else []
---   where
---     (two, rest) = B.splitAt 2 x
-
--- generateURLEncodedInfoHash :: DecodedValue -> ByteString
--- generateURLEncodedInfoHash info = do
---   let urlencoded = Prelude.map (B.pack "%" <>) $ splitBy2 $ calculateInfoHash info "hex"
---   B.concat urlencoded
-
--- calculateInfoHash :: DecodedValue -> Prelude.String -> ByteString
--- calculateInfoHash info "hex" = calculateHexHash str
---   where
---     str = toBencodedByteString info
--- calculateInfoHash info _ = calculateHash str
---   where
---     str = toBencodedByteString info
 
 getPieceHashes :: ByteString -> [ByteString]
 getPieceHashes pieces = if B.length pieces < 20 then [] else piece : getPieceHashes rest
@@ -58,8 +45,8 @@ makeQuery json = do
   let info = decodedToDictionary (json ! B.pack "info")
   let announce = decodedToByteString $ json ! B.pack "announce"
   let len = B.pack $ show $ info ! B.pack "length"
-  let infoHash = generateURLEncodedInfoHash $ sortInfo info
-  B.unpack $ B.concat [announce, B.pack "?info_hash=", infoHash, B.pack "&peer_id=12349679991234567890&port=6881&uploaded=0&downloaded=0&left=", len, B.pack "&compact=1"]
+  let torrentInfoHash = generateURLEncodedInfoHash $ sortInfo info
+  B.unpack $ B.concat [announce, B.pack "?info_hash=", torrentInfoHash, B.pack "&peer_id=12349679991234567890&port=6881&uploaded=0&downloaded=0&left=", len, B.pack "&compact=1"]
 
 peersToAddressList :: ByteString -> [(ByteString, ByteString)]
 peersToAddressList input = if B.length input < 6 then [] else addressToIPAndPort ip : peersToAddressList rest
@@ -74,3 +61,22 @@ addressToIPAndPort address = do
 
 parsePort :: ByteString -> ByteString
 parsePort port = B.pack $ show $ ord (B.head port) * 256 + ord (B.last port)
+
+readTorrentFile :: ByteString -> IO TorrentType
+readTorrentFile filePath = do
+  fileContent <- LB.readFile $ B.unpack filePath
+  let json = decodedToDictionary $ decodeBencodedValue (B.concat $ LB.toChunks fileContent)
+  let info = decodedToDictionary (json ! "info")
+  let torrentInfoHash = calculateInfoHash (sortInfo info) ""
+  let torrentTrackerUrl = decodedToByteString $ json ! "announce"
+  let torrentPieceLength = read (show $ info ! "piece length") :: Int
+  let torrentFileLength = read (show $ info ! "length") :: Int
+  let fileName = decodedToByteString $ info ! "name"
+  let pieceHashesList = getPieces $ decodedToByteString (info ! "pieces")
+  let query = makeQuery json
+  request <- parseRequest query
+  response <- httpLBS request
+  let peersBytes = decodedToDictionary (decodeBencodedValue $ LB.toStrict $ getResponseBody response) ! "peers"
+  let peersList = peersToAddressList $ decodedToByteString peersBytes
+
+  pure $ TorrentType {peers = peersList, trackerUrl = torrentTrackerUrl, outputPath = fileName, infoHash = torrentInfoHash, pieceHashes = pieceHashesList, fileLength = torrentFileLength, pieceLength = torrentPieceLength}

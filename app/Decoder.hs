@@ -25,13 +25,10 @@ module Decoder
     isLetterByte,
     makeBigEndian,
     makeQuery,
-    peersToAddressList,
-    addressToIPAndPort,
-    parsePort,
     calculateInfoHash,
     calculateHash,
     calculateHexHash,
-    generateURLEncodedInfoHash,
+    generateURLEncodedInfoHash
   )
 where
 
@@ -120,7 +117,7 @@ pBencodedDict = do
 
 decodedToByteString :: DecodedValue -> ByteString
 decodedToByteString (ByteString str) = str
-decodedToByteString _ = error "Invalid decoded value in decodedToByteString"
+decodedToByteString value = error $ "Invalid decoded value in decodedToByteString: " <> show value
 
 decodedToDictionary :: DecodedValue -> Map B.ByteString DecodedValue
 decodedToDictionary (Dict dictionary) = dictionary
@@ -192,19 +189,19 @@ makeQuery json = do
   let infoHash = generateURLEncodedInfoHash $ sortInfo info
   B.unpack $ B.concat [announce, "?info_hash=", infoHash, "&peer_id=12349679991234567890&port=6881&uploaded=0&downloaded=0&left=", length, "&compact=1"]
 
-peersToAddressList :: ByteString -> [(ByteString, ByteString)]
-peersToAddressList input = if B.length input < 6 then [] else addressToIPAndPort ip : peersToAddressList rest
-  where
-    (ip, rest) = B.splitAt 6 input
+-- peersToAddressList :: ByteString -> [(ByteString, ByteString)]
+-- peersToAddressList input = if B.length input < 6 then [] else addressToIPAndPort ip : peersToAddressList rest
+--   where
+--     (ip, rest) = B.splitAt 6 input
 
-addressToIPAndPort :: ByteString -> (ByteString, ByteString)
-addressToIPAndPort address = do
-  (B.intercalate "." $ map (B.pack . show . ord) (B.unpack ip), parsePort port)
-  where
-    (ip, port) = B.splitAt 4 address
+-- addressToIPAndPort :: ByteString -> (ByteString, ByteString)
+-- addressToIPAndPort address = do
+--   (B.intercalate "." $ map (B.pack . show . ord) (B.unpack ip), parsePort port)
+--   where
+--     (ip, port) = B.splitAt 4 address
 
-parsePort :: ByteString -> ByteString
-parsePort port = B.pack $ show $ ord (B.head port) * 256 + ord (B.last port)
+-- parsePort :: ByteString -> ByteString
+-- parsePort port = B.pack $ show $ ord (B.head port) * 256 + ord (B.last port)
 
 intToHexByteString :: Int32 -> ByteString
 intToHexByteString n = B.toStrict $ toLazyByteString $ int32BE n
