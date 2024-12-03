@@ -10,3 +10,5 @@ Run tests: `stack test`
 Clean: `stack clean`
 
 Based on Codecrafters course: https://app.codecrafters.io/courses/bittorrent/overview
+
+test to see if push works
