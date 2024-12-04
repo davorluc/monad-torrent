@@ -24,19 +24,29 @@ data Name
   | WhiteButton
   deriving (Show, Eq, Ord)
 
-newtype AppState = AppState
-  { appContent :: [String]
+data AppState = AppState
+  { appContent :: [String],
+    textInputState :: TextInputState,
+    showModal :: Bool
+  }
+
+data TextInputState = TextInputState
+  { textInput :: String
   }
 
 drawUI :: AppState -> [Widget Name]
-drawUI state = [C.vBox [header, aside, footer]]
+drawUI state =
+  [C.vBox [header, aside, testModal, footer]]
   where
     header = withAttr (attrName "headerAttr") $ C.hCenter $ C.str "monad-torrent"
     aside =
-      C.hBox
-        [ C.hLimitPercent 40 $ C.hBox [padAll 6 $ C.str "aside widget", vBorder],
-          contentWidget
-        ]
+      if showModal state
+        then C.emptyWidget
+        else
+          C.hBox
+            [ C.hLimitPercent 40 $ C.hBox [padAll 6 $ C.str "aside widget", vBorder],
+              contentWidget
+            ]
     vBorder = withAttr (attrName "borderAttr") B.vBorder
     contentWidget =
       C.vCenter $
@@ -48,13 +58,13 @@ drawUI state = [C.vBox [header, aside, footer]]
                 [ C.hBox [C.padRight (C.Pad 2) (C.str line)]
                   | line <- appContent state
                 ]
+    testModal = modalWidget (showModal state) (textInputState state)
     footer =
       withAttr
         (attrName "footerAttr")
         $ C.hBox
           [ C.hCenter $ C.str "d - download File sample.torrent",
-            C.hCenter $ C.str "p - peers",
-            C.hCenter $ C.str "i - info",
+            C.hCenter $ C.str "a - add torrent",
             C.hCenter $ C.str "q - quit"
           ]
 
@@ -70,6 +80,8 @@ appEvent (VtyEvent ev) = do
       if result
         then modify $ \s -> s {appContent = ["File downloaded"]}
         else modify $ \s -> s {appContent = ["File download failed"]}
+    V.EvKey (V.KChar 'a') [] -> do
+      modify $ \s -> s {showModal = not $ showModal s}
     _ -> do
       modify $ \s -> s {appContent = ["Invalid key", "please select a valid key"]}
 appEvent _ = BR.continueWithoutRedraw
@@ -77,7 +89,9 @@ appEvent _ = BR.continueWithoutRedraw
 initialState :: AppState
 initialState =
   AppState
-    { appContent = ["Choose an action."] -- Default content
+    { appContent = ["Choose an action."],
+      textInputState = TextInputState {textInput = ""},
+      showModal = False
     }
 
 theMap :: A.AttrMap
@@ -89,6 +103,7 @@ theMap =
       (attrName "headerAttr", V.black `on` V.white),
       (attrName "footerAttr", V.black `on` V.white),
       (attrName "borderAttr", V.white `on` V.black),
+      (attrName "inputAttr", V.white `on` V.black),
       (D.buttonSelectedAttr, bg V.yellow)
     ]
 
@@ -101,6 +116,23 @@ theApp =
       BR.appStartEvent = return (),
       BR.appAttrMap = const theMap
     }
+
+modalWidget :: Bool -> TextInputState -> Widget Name
+modalWidget False _ = C.emptyWidget
+modalWidget True textInputState =
+  C.vCenter $
+    C.hCenter $
+      withAttr (attrName "borderAttr") $
+        B.borderWithLabel (C.str "Download a torrent") $
+          padAll 8 $
+            C.vBox
+              [ C.str "Insert torrent filepath:",
+                withAttr (attrName "borderAttr") . padAll 1 $ textInputWidget textInputState
+              ]
+
+textInputWidget :: TextInputState -> Widget Name
+textInputWidget state =
+  C.withAttr (attrName "inputAttr") $ C.str (textInput state)
 
 main :: IO ()
 main = do
