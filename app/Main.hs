@@ -71,19 +71,26 @@ drawUI state =
 appEvent :: BrickEvent Name e -> EventM Name AppState ()
 appEvent (VtyEvent ev) = do
   currentState <- get
-  case ev of
-    V.EvKey (V.KChar 'q') [] -> do
-      BR.halt
-    V.EvKey (V.KChar 'd') [] -> do
-      parsedTorrentFile <- liftIO $ readTorrentFile "sample.torrent"
-      result <- liftIO $ downloadFile parsedTorrentFile
-      if result
-        then modify $ \s -> s {appContent = ["File downloaded"]}
-        else modify $ \s -> s {appContent = ["File download failed"]}
-    V.EvKey (V.KChar 'a') [] -> do
-      modify $ \s -> s {showModal = not $ showModal s}
-    _ -> do
-      modify $ \s -> s {appContent = ["Invalid key", "please select a valid key"]}
+  if showModal currentState
+    then case ev of
+      V.EvKey V.KEsc [] -> modify $ \s -> s {showModal = False}
+      V.EvKey V.KEnter [] -> modify $ \s -> s {showModal = False}
+      V.EvKey V.KBS [] -> modify $ \s -> s {textInputState = (textInputState s) {textInput = init (textInput (textInputState s))}}
+      V.EvKey (V.KChar c) [] -> modify $ \s -> s {textInputState = (textInputState s) {textInput = textInput (textInputState s) ++ [c]}}
+      _ -> BR.continueWithoutRedraw
+    else case ev of
+      V.EvKey (V.KChar 'q') [] -> do
+        BR.halt
+      V.EvKey (V.KChar 'd') [] -> do
+        parsedTorrentFile <- liftIO $ readTorrentFile "sample.torrent"
+        result <- liftIO $ downloadFile parsedTorrentFile
+        if result
+          then modify $ \s -> s {appContent = ["File downloaded"]}
+          else modify $ \s -> s {appContent = ["File download failed"]}
+      V.EvKey (V.KChar 'a') [] -> do
+        modify $ \s -> s {showModal = not $ showModal s}
+      _ -> do
+        modify $ \s -> s {appContent = ["Invalid key", "please select a valid key"]}
 appEvent _ = BR.continueWithoutRedraw
 
 initialState :: AppState
@@ -122,17 +129,22 @@ modalWidget False _ = C.emptyWidget
 modalWidget True textInputState =
   C.vCenter $
     C.hCenter $
-      withAttr (attrName "borderAttr") $
-        B.borderWithLabel (C.str "Download a torrent") $
-          padAll 8 $
-            C.vBox
-              [ C.str "Insert torrent filepath:",
-                withAttr (attrName "borderAttr") . padAll 1 $ textInputWidget textInputState
-              ]
+      vLimitPercent 40 $
+        hLimitPercent 80 $
+          withAttr (attrName "borderAttr") $
+            B.borderWithLabel (C.str "Download a torrent") $
+              padAll 4 $
+                C.vBox
+                  [ C.str "Insert torrent filepath:",
+                    textInputWidget textInputState
+                  ]
 
 textInputWidget :: TextInputState -> Widget Name
 textInputWidget state =
-  C.withAttr (attrName "inputAttr") $ C.str (textInput state)
+  B.borderWithLabel (C.str "Filepath") $
+    hLimitPercent 80 $
+      C.withAttr (attrName "inputAttr") $
+        C.str (textInput state)
 
 main :: IO ()
 main = do
