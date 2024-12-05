@@ -37,6 +37,7 @@ dependencies:
 - cryptohash-sha1
 - http-conduit
 - network-simple
+- directory
 
 ghc-options:
 - -Wall

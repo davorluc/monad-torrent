@@ -47,6 +47,7 @@ library
     , bytestring
     , containers
     , cryptohash-sha1
+    , directory
     , http-conduit
     , megaparsec
     , network
@@ -79,6 +80,7 @@ executable monad-torrent-exe
     , bytestring
     , containers
     , cryptohash-sha1
+    , directory
     , http-conduit
     , megaparsec
     , monad-torrent
@@ -110,6 +112,7 @@ test-suite monad-torrent-test
     , bytestring
     , containers
     , cryptohash-sha1
+    , directory
     , http-conduit
     , megaparsec
     , monad-torrent

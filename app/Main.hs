@@ -12,6 +12,7 @@ import qualified Brick.Widgets.Dialog as D
 import Control.Monad.IO.Class (liftIO)
 import qualified Graphics.Vty as V
 import Peer (downloadFile)
+import System.Directory as S
 import Torrent (readTorrentFile)
 
 data Choice = Red | Blue | Green | White
@@ -93,11 +94,12 @@ appEvent (VtyEvent ev) = do
         modify $ \s -> s {appContent = ["Invalid key", "please select a valid key"]}
 appEvent _ = BR.continueWithoutRedraw
 
-initialState :: AppState
-initialState =
-  AppState
+initialState :: IO AppState
+initialState = do
+  cwd <- S.getCurrentDirectory
+  return AppState
     { appContent = ["Choose an action."],
-      textInputState = TextInputState {textInput = ""},
+      textInputState = TextInputState {textInput = cwd},
       showModal = False
     }
 
@@ -162,5 +164,6 @@ textInputWidget state =
 
 main :: IO ()
 main = do
-  _ <- BR.defaultMain theApp initialState
+  initialisedState <- initialState
+  _ <- BR.defaultMain theApp initialisedState
   putStrLn "Exiting..."
