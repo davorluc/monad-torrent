@@ -110,6 +110,7 @@ theMap =
       (attrName "headerAttr", V.black `on` V.white),
       (attrName "footerAttr", V.black `on` V.white),
       (attrName "borderAttr", V.white `on` V.black),
+      (attrName "borderAttrBlack", V.black `on` V.black),
       (attrName "inputAttr", V.white `on` V.black),
       (D.buttonSelectedAttr, bg V.yellow)
     ]
@@ -129,22 +130,35 @@ modalWidget False _ = C.emptyWidget
 modalWidget True textInputState =
   C.vCenter $
     C.hCenter $
-      vLimitPercent 40 $
-        hLimitPercent 80 $
-          withAttr (attrName "borderAttr") $
-            B.borderWithLabel (C.str "Download a torrent") $
-              padAll 4 $
-                C.vBox
-                  [ C.str "Insert torrent filepath:",
-                    textInputWidget textInputState
-                  ]
+      C.vLimitPercent 80 $
+        C.hLimitPercent 90 $
+          B.borderWithLabel (str "add torrent") $
+            C.vBox
+              [ modalHeader,
+                C.vCenter $ C.hCenter $ C.hBox [C.vBox [textInputWidget textInputState]],
+                modalFooter
+              ]
+  where
+    modalHeader = withAttr (attrName "borderAttrBlack") $ (B.hBorder)
+    modalFooter = withAttr (attrName "borderAttrBlack") $ (B.hBorder)
 
 textInputWidget :: TextInputState -> Widget Name
 textInputWidget state =
   B.borderWithLabel (C.str "Filepath") $
-    hLimitPercent 80 $
-      C.withAttr (attrName "inputAttr") $
-        C.str (textInput state)
+    hLimitPercent 95 $
+      C.vBox
+        [ inputHeader,
+          C.hBox
+            [ C.withAttr (attrName "inputAttr") $
+                C.vBox
+                  [ C.str (textInput state),
+                    inputFooter
+                  ]
+            ]
+        ]
+  where
+    inputHeader = withAttr (attrName "borderAttr") $ (B.hBorder)
+    inputFooter = withAttr (attrName "borderAttr") $ (B.hBorder)
 
 main :: IO ()
 main = do
