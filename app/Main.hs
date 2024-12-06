@@ -10,6 +10,7 @@ import qualified Brick.Widgets.Center as C
 import qualified Brick.Widgets.Core as C
 import qualified Brick.Widgets.Dialog as D
 import Control.Monad.IO.Class (liftIO)
+import Data.ByteString.Char8 as B
 import qualified Graphics.Vty as V
 import Peer (downloadFile)
 import System.Directory as S
@@ -75,8 +76,14 @@ appEvent (VtyEvent ev) = do
   if showModal currentState
     then case ev of
       V.EvKey V.KEsc [] -> modify $ \s -> s {showModal = False}
-      V.EvKey V.KEnter [] -> modify $ \s -> s {showModal = False}
-      V.EvKey V.KBS [] -> modify $ \s -> s {textInputState = (textInputState s) {textInput = init (textInput (textInputState s))}}
+      V.EvKey V.KEnter [] -> do
+        parsedTorrentFile <- liftIO $ readTorrentFile (B.pack (textInput (textInputState currentState)))
+        result <- liftIO $ downloadFile parsedTorrentFile
+        if result
+          then modify $ \s -> s {appContent = ["File downloaded"]}
+          else modify $ \s -> s {appContent = ["File download failed"]}
+        modify $ \s -> s {showModal = False}
+      V.EvKey V.KBS [] -> modify $ \s -> s {textInputState = (textInputState s) {textInput = Prelude.init (textInput (textInputState s))}}
       V.EvKey (V.KChar c) [] -> modify $ \s -> s {textInputState = (textInputState s) {textInput = textInput (textInputState s) ++ [c]}}
       _ -> BR.continueWithoutRedraw
     else case ev of
@@ -97,11 +104,12 @@ appEvent _ = BR.continueWithoutRedraw
 initialState :: IO AppState
 initialState = do
   cwd <- S.getCurrentDirectory
-  return AppState
-    { appContent = ["Choose an action."],
-      textInputState = TextInputState {textInput = cwd},
-      showModal = False
-    }
+  return
+    AppState
+      { appContent = ["Choose an action."],
+        textInputState = TextInputState {textInput = cwd},
+        showModal = False
+      }
 
 theMap :: A.AttrMap
 theMap =
@@ -166,4 +174,4 @@ main :: IO ()
 main = do
   initialisedState <- initialState
   _ <- BR.defaultMain theApp initialisedState
-  putStrLn "Exiting..."
+  Prelude.putStrLn "Exiting..."
