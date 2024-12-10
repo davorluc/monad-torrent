@@ -76,8 +76,9 @@ drawUI state =
       withAttr
         (attrName "footerAttr")
         $ C.hBox
-          [ C.hCenter $ C.str "d - download File sample.torrent",
-            C.hCenter $ C.str "a - add torrent",
+          [ C.hCenter $ C.str "a - add torrent",
+            C.hCenter $ C.str "j/arrdown - entry down",
+            C.hCenter $ C.str "k/arrup - entry up",
             C.hCenter $ C.str "q - quit"
           ]
 
@@ -113,10 +114,10 @@ appEvent (VtyEvent ev) = do
         BR.halt
       V.EvKey (V.KChar 'a') [] -> do
         modify $ \s -> s {showModal = not $ showModal s}
-      V.EvKey V.KUp [] -> modify $ \s -> s { selectedTorrentIndex = clamp 0 (Prelude.length (torrents s) - 1) (selectedTorrentIndex s + 1) }
-      V.EvKey (V.KChar 'k') [] -> modify $ \s -> s { selectedTorrentIndex = clamp 0 (Prelude.length (torrents s) - 1) (selectedTorrentIndex s + 1) }
-      V.EvKey V.KDown [] -> modify $ \s -> s { selectedTorrentIndex = clamp 0 (Prelude.length (torrents s) - 1) (selectedTorrentIndex s - 1) } 
-      V.EvKey (V.KChar 'j') [] -> modify $ \s -> s { selectedTorrentIndex = clamp 0 (Prelude.length (torrents s) - 1) (selectedTorrentIndex s - 1) }
+      V.EvKey V.KDown [] -> modify $ \s -> s {selectedTorrentIndex = clamp 0 (Prelude.length (torrents s) - 1) (selectedTorrentIndex s + 1)}
+      V.EvKey (V.KChar 'j') [] -> modify $ \s -> s {selectedTorrentIndex = clamp 0 (Prelude.length (torrents s) - 1) (selectedTorrentIndex s + 1)}
+      V.EvKey V.KUp [] -> modify $ \s -> s {selectedTorrentIndex = clamp 0 (Prelude.length (torrents s) - 1) (selectedTorrentIndex s - 1)}
+      V.EvKey (V.KChar 'k') [] -> modify $ \s -> s {selectedTorrentIndex = clamp 0 (Prelude.length (torrents s) - 1) (selectedTorrentIndex s - 1)}
       _ -> do
         modify $ \s -> s {appContent = ["Invalid key", "please select a valid key"]}
 appEvent _ = BR.continueWithoutRedraw
