@@ -14,7 +14,7 @@ import Data.ByteString.Char8 as B
 import qualified Graphics.Vty as V
 import Peer (downloadFile)
 import System.Directory as S
-import Torrent (TorrentType, outputPath, readTorrentFile)
+import Torrent (TorrentType (..), readTorrentFile)
 
 data Choice = Red | Blue | Green | White
   deriving (Show)
@@ -47,7 +47,7 @@ drawUI state =
         then C.emptyWidget
         else
           C.hBox
-            [ C.hLimitPercent 40 $ C.hBox [C.vBox [padAll 2 $ C.str $ B.unpack (outputPath torrent) | torrent <- torrents state], vBorder],
+            [ C.hLimitPercent 40 $ C.hBox [C.vBox [C.str $ B.unpack (outputPath torrent) | torrent <- torrents state], vBorder],
               contentWidget
             ]
     vBorder = withAttr (attrName "borderAttr") B.vBorder
@@ -83,7 +83,7 @@ appEvent (VtyEvent ev) = do
         if result
           then do
             let newTorrent = parsedTorrentFile
-            modify $ \s -> s {appContent = ["File downloaded"], torrents = newTorrent : torrents s}
+            modify $ \s -> s {appContent = ["Output Path: " ++ B.unpack (outputPath newTorrent), "File Length: " ++ show (fileLength newTorrent), "Piece Length: " ++ show (pieceLength newTorrent), "Tracker URL: " ++ B.unpack (trackerUrl newTorrent)] ++ ["Peer: " ++ B.unpack ip ++ ":" ++ B.unpack port | (ip, port) <- peers newTorrent], torrents = newTorrent : torrents s}
           else modify $ \s -> s {appContent = ["File download failed"]}
         modify $ \s -> s {showModal = False}
       V.EvKey V.KBS [] -> modify $ \s -> s {textInputState = (textInputState s) {textInput = Prelude.init (textInput (textInputState s))}}
