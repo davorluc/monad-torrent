@@ -30,6 +30,7 @@ data AppState = AppState
   { appContent :: [String],
     textInputState :: TextInputState,
     showModal :: Bool,
+    selectedTorrentIndex :: Int,
     torrents :: [TorrentType]
   }
 
@@ -55,12 +56,21 @@ drawUI state =
       C.vCenter $
         C.hCenter . padAll 2 $
           C.vBox $
-            if Prelude.null (appContent state)
+            if Prelude.null (torrents state)
               then [C.str "No content found."]
               else
-                [ C.hBox [C.padRight (C.Pad 2) (C.str line)]
-                  | line <- appContent state
-                ]
+                let selectedTorrent = torrents state !! selectedTorrentIndex state
+                    torrentLines =
+                      [ C.str $ "Output Path: " ++ B.unpack (outputPath selectedTorrent),
+                        C.str $ "Info Hash: " ++ B.unpack (infoHash selectedTorrent),
+                        C.str $ "File Length: " ++ show (fileLength selectedTorrent),
+                        C.str $ "Piece Length: " ++ show (pieceLength selectedTorrent),
+                        C.str $ "Tracker URL: " ++ B.unpack (trackerUrl selectedTorrent)
+                      ]
+                        ++ [C.str $ "Peer: " ++ B.unpack ip ++ ":" ++ B.unpack port | (ip, port) <- peers selectedTorrent]
+                 in [ C.hBox [C.padRight (C.Pad 2) line]
+                      | line <- torrentLines
+                    ]
     testModal = modalWidget (showModal state) (textInputState state)
     footer =
       withAttr
@@ -82,8 +92,17 @@ appEvent (VtyEvent ev) = do
         result <- liftIO $ downloadFile parsedTorrentFile
         if result
           then do
-            let newTorrent = parsedTorrentFile
-            modify $ \s -> s {appContent = ["Output Path: " ++ B.unpack (outputPath newTorrent), "File Length: " ++ show (fileLength newTorrent), "Piece Length: " ++ show (pieceLength newTorrent), "Tracker URL: " ++ B.unpack (trackerUrl newTorrent)] ++ ["Peer: " ++ B.unpack ip ++ ":" ++ B.unpack port | (ip, port) <- peers newTorrent], torrents = newTorrent : torrents s}
+            let newTorrent =
+                  TorrentType -- Construct TorrentType from parsedTorrentFile
+                    { outputPath = outputPath parsedTorrentFile,
+                      infoHash = infoHash parsedTorrentFile,
+                      pieceHashes = pieceHashes parsedTorrentFile,
+                      fileLength = fileLength parsedTorrentFile,
+                      pieceLength = pieceLength parsedTorrentFile,
+                      trackerUrl = trackerUrl parsedTorrentFile,
+                      peers = peers parsedTorrentFile
+                    }
+            modify $ \s -> s {torrents = newTorrent : torrents s}
           else modify $ \s -> s {appContent = ["File download failed"]}
         modify $ \s -> s {showModal = False}
       V.EvKey V.KBS [] -> modify $ \s -> s {textInputState = (textInputState s) {textInput = Prelude.init (textInput (textInputState s))}}
@@ -92,14 +111,12 @@ appEvent (VtyEvent ev) = do
     else case ev of
       V.EvKey (V.KChar 'q') [] -> do
         BR.halt
-      V.EvKey (V.KChar 'd') [] -> do
-        parsedTorrentFile <- liftIO $ readTorrentFile "sample.torrent"
-        result <- liftIO $ downloadFile parsedTorrentFile
-        if result
-          then modify $ \s -> s {appContent = ["File downloaded"]}
-          else modify $ \s -> s {appContent = ["File download failed"]}
       V.EvKey (V.KChar 'a') [] -> do
         modify $ \s -> s {showModal = not $ showModal s}
+      V.EvKey V.KUp [] -> modify $ \s -> s { selectedTorrentIndex = clamp 0 (Prelude.length (torrents s) - 1) (selectedTorrentIndex s + 1) }
+      V.EvKey (V.KChar 'k') [] -> modify $ \s -> s { selectedTorrentIndex = clamp 0 (Prelude.length (torrents s) - 1) (selectedTorrentIndex s + 1) }
+      V.EvKey V.KDown [] -> modify $ \s -> s { selectedTorrentIndex = clamp 0 (Prelude.length (torrents s) - 1) (selectedTorrentIndex s - 1) } 
+      V.EvKey (V.KChar 'j') [] -> modify $ \s -> s { selectedTorrentIndex = clamp 0 (Prelude.length (torrents s) - 1) (selectedTorrentIndex s - 1) }
       _ -> do
         modify $ \s -> s {appContent = ["Invalid key", "please select a valid key"]}
 appEvent _ = BR.continueWithoutRedraw
@@ -112,6 +129,7 @@ initialState = do
       { appContent = ["Choose an action."],
         textInputState = TextInputState {textInput = cwd},
         torrents = [],
+        selectedTorrentIndex = 0,
         showModal = False
       }
 
