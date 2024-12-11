@@ -48,7 +48,16 @@ drawUI state =
         then C.emptyWidget
         else
           C.hBox
-            [ C.hLimitPercent 40 $ C.hBox [C.vBox [C.str $ B.unpack (outputPath torrent) | torrent <- torrents state], vBorder],
+            [ C.hLimitPercent 40 $
+                C.hBox
+                  [ C.vBox
+                      [ styleEntry i (selectedTorrentIndex state) $
+                          C.str $
+                            B.unpack (outputPath torrent)
+                        | (i, torrent) <- Prelude.zip [0 ..] (torrents state)
+                      ],
+                    vBorder
+                  ],
               contentWidget
             ]
     vBorder = withAttr (attrName "borderAttr") B.vBorder
@@ -134,6 +143,12 @@ initialState = do
         showModal = False
       }
 
+styleEntry :: Int -> Int -> Widget Name -> Widget Name
+styleEntry currentIndex targetIndex widget =
+  if currentIndex == targetIndex
+    then withAttr (attrName "entryAttr") widget
+    else widget
+
 theMap :: A.AttrMap
 theMap =
   A.attrMap
@@ -143,6 +158,7 @@ theMap =
       (attrName "headerAttr", V.black `on` V.white),
       (attrName "footerAttr", V.black `on` V.white),
       (attrName "borderAttr", V.white `on` V.black),
+      (attrName "entryAttr", V.yellow `on` V.black),
       (attrName "borderAttrBlack", V.black `on` V.black),
       (attrName "inputAttr", V.white `on` V.black),
       (D.buttonSelectedAttr, bg V.yellow)
