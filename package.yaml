@@ -38,6 +38,8 @@ dependencies:
 - http-conduit
 - network-simple
 - directory
+- binary
+- random
 
 ghc-options:
 - -Wall

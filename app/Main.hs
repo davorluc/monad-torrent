@@ -74,7 +74,7 @@ drawUI state =
                         C.str $ "Info Hash: " ++ B.unpack (infoHash selectedTorrent),
                         C.str $ "File Length: " ++ show (fileLength selectedTorrent),
                         C.str $ "Piece Length: " ++ show (pieceLength selectedTorrent),
-                        C.str $ "Tracker URL: " ++ B.unpack (trackerUrl selectedTorrent)
+                        C.str $ "Tracker URL: " ++ B.unpack (B.intercalate ", " (trackerUrls selectedTorrent))
                       ]
                         ++ [C.str $ "Peer: " ++ B.unpack ip ++ ":" ++ B.unpack port | (ip, port) <- peers selectedTorrent]
                  in [ C.hBox [C.padRight (C.Pad 2) line]
@@ -103,13 +103,13 @@ appEvent (VtyEvent ev) = do
         if result
           then do
             let newTorrent =
-                  TorrentType -- Construct TorrentType from parsedTorrentFile
+                  TorrentType
                     { outputPath = outputPath parsedTorrentFile,
                       infoHash = infoHash parsedTorrentFile,
                       pieceHashes = pieceHashes parsedTorrentFile,
                       fileLength = fileLength parsedTorrentFile,
                       pieceLength = pieceLength parsedTorrentFile,
-                      trackerUrl = trackerUrl parsedTorrentFile,
+                      trackerUrls = trackerUrls parsedTorrentFile,
                       peers = peers parsedTorrentFile
                     }
             modify $ \s -> s {torrents = newTorrent : torrents s}

@@ -43,6 +43,7 @@ library
     , async
     , base >=4.7 && <5
     , base16-bytestring
+    , binary
     , brick
     , bytestring
     , containers
@@ -54,6 +55,7 @@ library
     , network-simple
     , parsec
     , parser-combinators
+    , random
     , time
     , vty >=6.0
     , vty-unix
@@ -76,6 +78,7 @@ executable monad-torrent-exe
     , async
     , base >=4.7 && <5
     , base16-bytestring
+    , binary
     , brick
     , bytestring
     , containers
@@ -88,6 +91,7 @@ executable monad-torrent-exe
     , network-simple
     , parsec
     , parser-combinators
+    , random
     , time
     , vty >=6.0
     , vty-unix
@@ -108,6 +112,7 @@ test-suite monad-torrent-test
     , async
     , base >=4.7 && <5
     , base16-bytestring
+    , binary
     , brick
     , bytestring
     , containers
@@ -120,6 +125,7 @@ test-suite monad-torrent-test
     , network-simple
     , parsec
     , parser-combinators
+    , random
     , time
     , vty >=6.0
     , vty-unix
