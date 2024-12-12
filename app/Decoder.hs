@@ -28,7 +28,7 @@ module Decoder
     calculateInfoHash,
     calculateHash,
     calculateHexHash,
-    generateURLEncodedInfoHash
+    generateURLEncodedInfoHash,
   )
 where
 
