@@ -10,6 +10,7 @@ import qualified Brick.Widgets.Center as C
 import qualified Brick.Widgets.Core as C
 import qualified Brick.Widgets.Dialog as D
 import Control.Monad.IO.Class (liftIO)
+import Control.Monad (when)
 import Data.ByteString.Char8 as B
 import qualified Graphics.Vty as V
 import Peer (downloadFile)
@@ -127,6 +128,13 @@ appEvent (VtyEvent ev) = do
       V.EvKey (V.KChar 'j') [] -> modify $ \s -> s {selectedTorrentIndex = clamp 0 (Prelude.length (torrents s) - 1) (selectedTorrentIndex s + 1)}
       V.EvKey V.KUp [] -> modify $ \s -> s {selectedTorrentIndex = clamp 0 (Prelude.length (torrents s) - 1) (selectedTorrentIndex s - 1)}
       V.EvKey (V.KChar 'k') [] -> modify $ \s -> s {selectedTorrentIndex = clamp 0 (Prelude.length (torrents s) - 1) (selectedTorrentIndex s - 1)}
+      V.EvKey (V.KChar 'd') [] -> do
+        let torrentToDelete = torrents currentState !! selectedTorrentIndex currentState
+        let filePath = B.unpack (outputPath torrentToDelete)
+        fileExists <- liftIO $ S.doesFileExist filePath
+        when fileExists $ liftIO $ S.removeFile filePath
+        modify $ \s -> s { torrents = Prelude.take (selectedTorrentIndex s) (torrents s) ++ Prelude.drop (selectedTorrentIndex s + 1) (torrents s) }
+        modify $ \s -> s { selectedTorrentIndex = clamp 0 (Prelude.length (torrents s) - 1) (selectedTorrentIndex s) }
       _ -> do
         modify $ \s -> s {appContent = ["Invalid key", "please select a valid key"]}
 appEvent _ = BR.continueWithoutRedraw
