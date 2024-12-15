@@ -5,12 +5,11 @@ module Main (main) where
 import Brick as BR
 import qualified Brick.AttrMap as A
 import qualified Brick.Widgets.Border as B
-import qualified Brick.Widgets.Border.Style as BS
 import qualified Brick.Widgets.Center as C
 import qualified Brick.Widgets.Core as C
 import qualified Brick.Widgets.Dialog as D
-import Control.Monad.IO.Class (liftIO)
 import Control.Monad (when)
+import Control.Monad.IO.Class (liftIO)
 import Data.ByteString.Char8 as B
 import qualified Graphics.Vty as V
 import Peer (downloadFile)
@@ -134,8 +133,8 @@ appEvent (VtyEvent ev) = do
         let filePath = B.unpack (outputPath torrentToDelete)
         fileExists <- liftIO $ S.doesFileExist filePath
         when fileExists $ liftIO $ S.removeFile filePath
-        modify $ \s -> s { torrents = Prelude.take (selectedTorrentIndex s) (torrents s) ++ Prelude.drop (selectedTorrentIndex s + 1) (torrents s) }
-        modify $ \s -> s { selectedTorrentIndex = clamp 0 (Prelude.length (torrents s) - 1) (selectedTorrentIndex s) }
+        modify $ \s -> s {torrents = Prelude.take (selectedTorrentIndex s) (torrents s) ++ Prelude.drop (selectedTorrentIndex s + 1) (torrents s)}
+        modify $ \s -> s {selectedTorrentIndex = clamp 0 (Prelude.length (torrents s) - 1) (selectedTorrentIndex s)}
       _ -> do
         modify $ \s -> s {appContent = ["Invalid key", "please select a valid key"]}
 appEvent _ = BR.continueWithoutRedraw
@@ -146,7 +145,7 @@ initialState = do
   return
     AppState
       { appContent = ["Choose an action."],
-        textInputState = TextInputState {textInput = cwd},
+        textInputState = TextInputState {textInput = cwd <> "/"},
         torrents = [],
         selectedTorrentIndex = 0,
         showModal = False
@@ -185,7 +184,7 @@ theApp =
 
 modalWidget :: Bool -> TextInputState -> Widget Name
 modalWidget False _ = C.emptyWidget
-modalWidget True textInputState =
+modalWidget True modalTextInputState =
   C.vCenter $
     C.hCenter $
       C.vLimitPercent 80 $
@@ -193,7 +192,7 @@ modalWidget True textInputState =
           B.borderWithLabel (str "add torrent") $
             C.vBox
               [ modalHeader,
-                C.vCenter $ C.hCenter $ C.hBox [C.vBox [textInputWidget textInputState]],
+                C.vCenter $ C.hCenter $ C.hBox [C.vBox [textInputWidget modalTextInputState]],
                 modalFooter
               ]
   where
