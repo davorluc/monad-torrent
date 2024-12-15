@@ -1,9 +1,9 @@
+{-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Decoder
   ( DecodedValue (..),
     Parser,
-    integer,
     pChar,
     noSpace,
     signedInteger,
@@ -60,6 +60,7 @@ import qualified Text.Megaparsec.Byte.Lexer as L
 data DecodedValue = Int Int | ByteString ByteString | List [DecodedValue] | Dict (Map ByteString DecodedValue) deriving (Eq, Ord)
 
 instance Show DecodedValue where
+  show :: DecodedValue -> String
   show (Int i) = show i
   show (ByteString s) = "\"" <> unpack s <> "\""
   show (List l) = show l
@@ -69,9 +70,6 @@ instance Show DecodedValue where
 
 type Parser = Parsec Void B.ByteString
 
-integer :: Parser Int
-integer = L.decimal
-
 pChar :: Char -> Parser Word8
 pChar c = char (fromIntegral $ ord c)
 
@@ -79,7 +77,7 @@ noSpace :: Parser ()
 noSpace = L.space empty empty empty
 
 signedInteger :: Parser Int
-signedInteger = L.signed noSpace integer
+signedInteger = L.signed noSpace L.decimal
 
 isLetterByte :: Word8 -> Bool
 isLetterByte = isLetter . chr . fromIntegral
@@ -95,9 +93,9 @@ pBencodedInt = do
 -- 4:spam
 pBencodedByteString :: Parser DecodedValue
 pBencodedByteString = do
-  length <- L.decimal
+  length' <- L.decimal
   void (pChar ':')
-  ByteString <$> takeP (Just "String") length
+  ByteString <$> takeP (Just "String") length'
 
 -- l4:spam4:eggsi42ee
 pBencodedList :: Parser DecodedValue
@@ -121,6 +119,7 @@ decodedToByteString value = error $ "Invalid decoded value in decodedToByteStrin
 
 decodedToDictionary :: DecodedValue -> Map B.ByteString DecodedValue
 decodedToDictionary (Dict dictionary) = dictionary
+decodedToDictionary value = error $ "Invalid decoded value in decodedToDictionary" <> show value
 
 decodedToList :: DecodedValue -> [DecodedValue]
 decodedToList (List list) = list
@@ -185,9 +184,9 @@ makeQuery :: Map B.ByteString DecodedValue -> String
 makeQuery json = do
   let info = decodedToDictionary (json ! "info")
   let announce = decodedToByteString $ json ! "announce"
-  let length = B.pack $ show $ info ! "length"
+  let length' = B.pack $ show $ info ! "length"
   let infoHash = generateURLEncodedInfoHash $ sortInfo info
-  B.unpack $ B.concat [announce, "?info_hash=", infoHash, "&peer_id=12349679991234567890&port=6881&uploaded=0&downloaded=0&left=", length, "&compact=1"]
+  B.unpack $ B.concat [announce, "?info_hash=", infoHash, "&peer_id=12349679991234567890&port=6881&uploaded=0&downloaded=0&left=", length', "&compact=1"]
 
 -- peersToAddressList :: ByteString -> [(ByteString, ByteString)]
 -- peersToAddressList input = if B.length input < 6 then [] else addressToIPAndPort ip : peersToAddressList rest
@@ -212,6 +211,6 @@ padWithZeros bs
   | otherwise = B.replicate (4 - B.length bs) (B.head $ B.toStrict $ LB.singleton (0 :: Word8)) `B.append` bs
 
 makeBigEndian :: ByteString -> ByteString
-makeBigEndian bs = B.concat [last, first]
+makeBigEndian bs = B.concat [last', first]
   where
-    (first, last) = B.splitAt 2 bs
+    (first, last') = B.splitAt 2 bs

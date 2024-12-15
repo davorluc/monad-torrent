@@ -8,22 +8,16 @@ module Peer
   )
 where
 
-import Control.Monad (when)
 import Data.Bits (shiftL)
-import Data.ByteString (ByteString, foldl', fromStrict, hPut, pack, split)
+import Data.ByteString (ByteString, foldl')
 import qualified Data.ByteString.Base16 as B16
-import Data.ByteString.Builder (int32BE, toLazyByteString)
 import qualified Data.ByteString.Char8 as B
 import qualified Data.ByteString.Lazy as LB
 import Data.Char (chr, ord)
-import Data.Int (Int32)
-import Data.Map ((!))
 import Data.Word (Word8)
 import Decoder (calculateHash, intToHexByteString, padWithZeros)
 import GHC.IO.Handle
 import GHC.IO.IOMode (IOMode (ReadWriteMode))
-import Network.HTTP.Conduit (parseRequest)
-import Network.HTTP.Simple (getResponseBody, httpLBS)
 import Network.Socket
   ( AddrInfo (addrAddress, addrFamily),
     SocketType (Stream),
@@ -36,13 +30,13 @@ import Network.Socket
 import Torrent
 
 getSocketHandle :: ByteString -> ByteString -> ByteString -> IO Handle
-getSocketHandle ip port infoHash = do
+getSocketHandle ip port fileInfoHash = do
   addrInfo <- getAddrInfo Nothing (Just $ B.unpack ip) (Just $ B.unpack port)
   let serverAddr = head addrInfo
   peerSocket <- socket (addrFamily serverAddr) Stream defaultProtocol
   Network.Socket.connect peerSocket (addrAddress serverAddr)
   handle <- socketToHandle peerSocket ReadWriteMode
-  B.hPut handle $ B.concat [B.toStrict $ LB.singleton (19 :: Word8), B.pack "BitTorrent protocol", B.concat $ replicate 8 (B.toStrict $ LB.singleton (0 :: Word8)), infoHash, B.pack "12345678901234567890"]
+  B.hPut handle $ B.concat [B.toStrict $ LB.singleton (19 :: Word8), B.pack "BitTorrent protocol", B.concat $ replicate 8 (B.toStrict $ LB.singleton (0 :: Word8)), fileInfoHash, B.pack "12345678901234567890"]
   hFlush handle
   return handle
 
@@ -55,11 +49,11 @@ waitForUnchoke handle = waitForXDiscardMessage handle 1
 waitForXDiscardMessage :: Handle -> Int -> IO ()
 waitForXDiscardMessage handle x = do
   prefix <- B.hGet handle 4
-  let length = hexByteStringToInt prefix
-  if length == 0
+  let len = hexByteStringToInt prefix
+  if len == 0
     then waitForXDiscardMessage handle x
     else do
-      message <- B.hGet handle length
+      message <- B.hGet handle len
       if hexByteStringToInt (B.singleton $ B.head message) == x
         then return ()
         else waitForXDiscardMessage handle x
@@ -67,13 +61,13 @@ waitForXDiscardMessage handle x = do
 waitForX :: Handle -> Int -> IO Int
 waitForX handle x = do
   prefix <- B.hGet handle 4
-  let length = hexByteStringToInt prefix
-  if length == 0
+  let len = hexByteStringToInt prefix
+  if len == 0
     then waitForX handle x
     else do
       message <- B.hGet handle 1
       if hexByteStringToInt (B.singleton $ B.head message) == x
-        then return length
+        then return len
         else waitForX handle x
 
 sendInterested :: Handle -> IO ()
@@ -113,11 +107,11 @@ receiveBlock handle pieceIndex blockOffset blockLength = do
   B.hGet handle blockLength
 
 getPiece :: Handle -> Int -> Int -> Int -> IO ByteString
-getPiece handle pieceIndex pieceLength fileLength = do
-  let blockLength = 2 ^ 14
-  let lastBlockLength = if (pieceIndex + 1) * pieceLength > fileLength then fileLength `mod` blockLength else 0
-  let pieceLengthCalculated = min (pieceLength * (pieceIndex + 1)) fileLength - (pieceIndex * pieceLength)
-  let numBlocks = pieceLengthCalculated `div` blockLength
+getPiece handle pieceIndex pieceLen fileLen = do
+  let blockLength = 16384 -- 2^14
+  let lastBlockLength = if (pieceIndex + 1) * pieceLen > fileLen then fileLen `mod` blockLength else 0
+  let pieceLenCalculated = min (pieceLen * (pieceIndex + 1)) fileLen - (pieceIndex * pieceLen)
+  let numBlocks = pieceLenCalculated `div` blockLength
 
   let blockIndices = [0 .. (numBlocks - 1)]
 
@@ -133,8 +127,8 @@ getPiece handle pieceIndex pieceLength fileLength = do
     else return $ B.concat blocks
 
 getReadyHandle :: (ByteString, ByteString) -> ByteString -> IO Handle
-getReadyHandle peerAddress infoHash = do
-  handle <- getSocketHandle (fst peerAddress) (snd peerAddress) infoHash
+getReadyHandle peerAddress fileInfoHash = do
+  handle <- getSocketHandle (fst peerAddress) (snd peerAddress) fileInfoHash
   _ <- B.hGet handle 68 -- peer handshake response
   waitForBitfield handle
   sendInterested handle

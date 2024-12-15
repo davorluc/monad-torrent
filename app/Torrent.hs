@@ -20,7 +20,7 @@ import qualified Data.ByteString.Lazy as LB
 import Data.Char (ord)
 import Data.Map (Map, lookup)
 import Data.Map.Internal ((!))
-import Decoder (DecodedValue (..), calculateInfoHash, decodeBencodedValue, decodedToByteString, decodedToDictionary, generateURLEncodedInfoHash, getPieces, sortInfo, toBencodedByteString)
+import Decoder (DecodedValue (..), calculateInfoHash, decodeBencodedValue, decodedToByteString, decodedToDictionary, generateURLEncodedInfoHash, getPieces, sortInfo)
 import Network.HTTP.Simple (getResponseBody, httpLBS, parseRequest)
 import Prelude
 
@@ -81,11 +81,13 @@ readTorrentFile filePath = do
   let fileName = decodedToByteString $ info ! "name"
   let pieceHashesList = getPieces $ decodedToByteString (info ! "pieces")
 
-  let trackerUrls = case Data.Map.lookup "announce-list" json of
-        Just announceList -> decodeAnnounceList announceList
-        Nothing -> [decodedToByteString (json ! "announce")]
+  let trackerUrls' =
+        maybe
+          [decodedToByteString (json ! "announce")]
+          decodeAnnounceList
+          (Data.Map.lookup "announce-list" json)
 
-  let firstTrackerUrl = case trackerUrls of
+  let firstTrackerUrl = case trackerUrls' of
         (url : _) -> url
         [] -> error "No trackers found in torrent file"
   let query = makeQuery json firstTrackerUrl
@@ -97,7 +99,7 @@ readTorrentFile filePath = do
   pure $
     TorrentType
       { peers = peersList,
-        trackerUrls = trackerUrls,
+        trackerUrls = trackerUrls',
         outputPath = fileName,
         infoHash = torrentInfoHash,
         pieceHashes = pieceHashesList,
