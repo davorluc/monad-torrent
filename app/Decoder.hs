@@ -4,7 +4,7 @@
 module Decoder
   ( DecodedValue (..),
     Parser,
-    pChar,
+    parseChar,
     noSpace,
     signedInteger,
     parseBencodedInt,
@@ -56,6 +56,7 @@ import Text.Megaparsec
   )
 import Text.Megaparsec.Byte (char)
 import qualified Text.Megaparsec.Byte.Lexer as L
+import Debug.Trace (trace)
 
 data DecodedValue = Int Int | ByteString ByteString | List [DecodedValue] | Dict (Map ByteString DecodedValue) deriving (Eq, Ord)
 
@@ -70,8 +71,8 @@ instance Show DecodedValue where
 
 type Parser = Parsec Void B.ByteString
 
-pChar :: Char -> Parser Word8
-pChar c = char (fromIntegral $ ord c)
+parseChar :: Char -> Parser Word8
+parseChar c = char (fromIntegral $ ord c)
 
 noSpace :: Parser ()
 noSpace = L.space empty empty empty
@@ -85,33 +86,39 @@ isLetterByte = isLetter . chr . fromIntegral
 -- i42e
 parseBencodedInt :: Parser DecodedValue
 parseBencodedInt = do
-  void (pChar 'i')
+  void (parseChar 'i')
   int <- Int <$> signedInteger
-  void (pChar 'e')
+  void (parseChar 'e')
   return int
 
 -- 4:spam
 parseBencodedByteString :: Parser DecodedValue
 parseBencodedByteString = do
   length' <- L.decimal
-  void (pChar ':')
+  void (parseChar ':')
   ByteString <$> takeP (Just "String") length'
 
 -- l4:spam4:eggsi42ee
 parseBencodedList :: Parser DecodedValue
 parseBencodedList = do
-  void (pChar 'l')
+  void (parseChar 'l')
   bencodedList <- List <$> many parseBencodedValue <?> "list values"
-  void (pChar 'e')
+  void (parseChar 'e')
   return bencodedList
 
 -- {key: value, key: value}
 parseBencodedDict :: Parser DecodedValue
 parseBencodedDict = do
-  void (pChar 'd')
+  void (parseChar 'd')
   dictionary <- Dict . fromList <$> many parseBencodedKeyValuePair
-  void (pChar 'e')
+  void (parseChar 'e')
   return dictionary
+
+parseBencodedKeyValuePair :: Parser (ByteString, DecodedValue)
+parseBencodedKeyValuePair = (,) <$> (decodedToByteString <$> parseBencodedByteString) <*> parseBencodedValue
+
+parseBencodedValue :: Parser DecodedValue
+parseBencodedValue = parseBencodedList <|> parseBencodedInt <|> parseBencodedByteString <|> parseBencodedDict
 
 decodedToByteString :: DecodedValue -> ByteString
 decodedToByteString (ByteString str) = str
@@ -124,12 +131,6 @@ decodedToDictionary value = error $ "Invalid decoded value in decodedToDictionar
 decodedToList :: DecodedValue -> [DecodedValue]
 decodedToList (List list) = list
 decodedToList _ = error "Invalid decoded value in decodedToList"
-
-parseBencodedKeyValuePair :: Parser (ByteString, DecodedValue)
-parseBencodedKeyValuePair = (,) <$> (decodedToByteString <$> parseBencodedByteString) <*> parseBencodedValue
-
-parseBencodedValue :: Parser DecodedValue
-parseBencodedValue = parseBencodedList <|> parseBencodedInt <|> parseBencodedByteString <|> parseBencodedDict
 
 decodeBencodedValue :: ByteString -> DecodedValue
 decodeBencodedValue encodedValue =
