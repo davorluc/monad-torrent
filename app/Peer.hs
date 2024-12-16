@@ -134,32 +134,15 @@ writeToFileAtOffset path offset content = do
   handle <- openFileMaybe path ReadWriteMode -- Open in read-write mode if it exists
   case handle of
     Nothing -> do
-      putStrLn $ "Failed to open " ++ path ++ " for writing"
       return Nothing
     Just h -> do
       -- Ensure the file is at least `offset` bytes long
       currentSize <- hFileSize h
       when (currentSize < offset) $ hSetFileSize h offset -- Do nothing if the size is sufficient
-        -- Seek to the specified byte offset
       hSeek h AbsoluteSeek offset
-      -- Write content to the file
       hPut h content
-      -- Close the handle
       hClose h
-      putStrLn $ "Data written to " ++ path ++ " at offset " ++ show offset
       return (Just ())
-  -- Ensure the file is at least `offset` bytes long
-  -- currentSize <- hFileSize handle
-  -- if currentSize < offset
-  --   then hSetFileSize handle offset
-  --   else pure () -- Do nothing if the size is sufficient
-  --   -- Seek to the specified byte offset
-  -- hSeek handle AbsoluteSeek offset
-  -- -- Write content to the file
-  -- hPut handle content
-  -- -- Close the handle
-  -- hClose handle
-  -- putStrLn $ "Data written to " ++ path ++ " at offset " ++ show offset
 
 getPiece :: ByteString -> Handle -> Int -> Int -> Int -> IO (Maybe ())
 getPiece outputPath handle pieceIndex pieceLength fileLength = do
@@ -252,12 +235,11 @@ downloadFile torrent = do
   let pieceIndices = [0 .. numPieces]
   queue <- initializeQueue pieceIndices
   -- let numThreads = length (peers torrent)
-  traceShowM $ "Downloading file with " ++ show numPieces ++ " pieces"
+  -- traceShowM $ "Downloading file with " ++ show numPieces ++ " pieces"
   createFileIfNotExists $ B.unpack (outputPath torrent)
-  traceShowM "File created"
+  -- traceShowM "File created"
   threads <- mapM (\peer -> async (downloadWorker torrent queue peer)) (peers torrent)
   mapM_ wait threads
-  putStrLn "All pieces downloaded!"
   -- putStrLn "Verifying file..."
 
   -- handle <- openBinaryFile (B.unpack $ outputPath torrent) ReadMode
