@@ -56,6 +56,7 @@ library
     , parsec
     , parser-combinators
     , random
+    , stm
     , time
     , vty >=6.0
     , vty-unix
@@ -92,6 +93,7 @@ executable monad-torrent-exe
     , parsec
     , parser-combinators
     , random
+    , stm
     , time
     , vty >=6.0
     , vty-unix
@@ -126,6 +128,7 @@ test-suite monad-torrent-test
     , parsec
     , parser-combinators
     , random
+    , stm
     , time
     , vty >=6.0
     , vty-unix

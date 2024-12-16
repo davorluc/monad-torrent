@@ -40,6 +40,8 @@ dependencies:
 - directory
 - binary
 - random
+- directory
+- stm
 
 ghc-options:
 - -Wall

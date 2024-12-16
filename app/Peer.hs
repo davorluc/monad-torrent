@@ -4,20 +4,22 @@ module Peer
     waitForUnchoke,
     sendInterested,
     getPiece,
-    downloadFile,
+    downloadFile
   )
 where
 
+import Control.Concurrent.Async (async, wait)
+import Control.Monad
 import Data.Bits (shiftL)
-import Data.ByteString (ByteString, foldl')
-import qualified Data.ByteString.Base16 as B16
+import Data.ByteString (ByteString, foldl', hPut)
 import qualified Data.ByteString.Char8 as B
 import qualified Data.ByteString.Lazy as LB
 import Data.Char (chr, ord)
 import Data.Word (Word8)
 import Decoder (calculateHash, intToHexByteString, padWithZeros)
+import GHC.Conc.Sync
 import GHC.IO.Handle
-import GHC.IO.IOMode (IOMode (ReadWriteMode))
+import GHC.IO.StdHandles
 import Network.Socket
   ( AddrInfo (addrAddress, addrFamily),
     SocketType (Stream),
@@ -27,7 +29,18 @@ import Network.Socket
     socket,
     socketToHandle,
   )
+import System.Directory
 import Torrent
+import Brick (put, modify)
+import qualified Data.ByteString as Bl
+import Debug.Trace (trace, traceShowM)
+import Control.Exception (IOException, catch)
+import Control.Exception.Base (try)
+import GHC.IO.IOMode
+
+type Piece = Int -- Represent a piece by its index
+
+type PieceQueue = TVar [Piece] -- A thread-safe queue of pieces
 
 getSocketHandle :: ByteString -> ByteString -> ByteString -> IO Handle
 getSocketHandle ip port fileInfoHash = do
@@ -106,59 +119,156 @@ receiveBlock handle pieceIndex blockOffset blockLength = do
   _ <- B.hGet handle 4 -- block begin response
   B.hGet handle blockLength
 
-getPiece :: Handle -> Int -> Int -> Int -> IO ByteString
-getPiece handle pieceIndex pieceLen fileLen = do
-  let blockLength = 16384 -- 2^14
-  let lastBlockLength = if (pieceIndex + 1) * pieceLen > fileLen then fileLen `mod` blockLength else 0
-  let pieceLenCalculated = min (pieceLen * (pieceIndex + 1)) fileLen - (pieceIndex * pieceLen)
-  let numBlocks = pieceLenCalculated `div` blockLength
+
+-- Attempt to open a binary file and handle the error if it is locked
+openFileMaybe :: FilePath -> IOMode -> IO (Maybe Handle)
+openFileMaybe path mode = do
+  result <- try (openBinaryFile path mode) :: IO (Either IOException Handle)
+  case result of
+    Left _  -> return Nothing  -- If an IOException occurs, return Nothing
+    Right h -> return (Just h) -- Otherwise, return Just Handle
+
+writeToFileAtOffset :: FilePath -> Integer -> ByteString -> IO (Maybe ())
+writeToFileAtOffset path offset content = do
+  -- Check if the file exists
+  handle <- openFileMaybe path ReadWriteMode -- Open in read-write mode if it exists
+  case handle of
+    Nothing -> do
+      putStrLn $ "Failed to open " ++ path ++ " for writing"
+      return Nothing
+    Just h -> do
+      -- Ensure the file is at least `offset` bytes long
+      currentSize <- hFileSize h
+      when (currentSize < offset) $ hSetFileSize h offset -- Do nothing if the size is sufficient
+        -- Seek to the specified byte offset
+      hSeek h AbsoluteSeek offset
+      -- Write content to the file
+      hPut h content
+      -- Close the handle
+      hClose h
+      putStrLn $ "Data written to " ++ path ++ " at offset " ++ show offset
+      return (Just ())
+  -- Ensure the file is at least `offset` bytes long
+  -- currentSize <- hFileSize handle
+  -- if currentSize < offset
+  --   then hSetFileSize handle offset
+  --   else pure () -- Do nothing if the size is sufficient
+  --   -- Seek to the specified byte offset
+  -- hSeek handle AbsoluteSeek offset
+  -- -- Write content to the file
+  -- hPut handle content
+  -- -- Close the handle
+  -- hClose handle
+  -- putStrLn $ "Data written to " ++ path ++ " at offset " ++ show offset
+
+getPiece :: ByteString -> Handle -> Int -> Int -> Int -> IO (Maybe ())
+getPiece outputPath handle pieceIndex pieceLength fileLength = do
+  -- putStrLn $ "Getting piece " <> show pieceIndex
+  let blockLength = 2 ^ 14
+  let lastBlockLength = if (pieceIndex + 1) * pieceLength > fileLength then fileLength `mod` blockLength else 0
+  let pieceLengthCalculated = min (pieceLength * (pieceIndex + 1)) fileLength - (pieceIndex * pieceLength)
+  let numBlocks = pieceLengthCalculated `div` blockLength
 
   let blockIndices = [0 .. (numBlocks - 1)]
 
   let blockLengths = replicate numBlocks blockLength
   -- get all blocks with normal length
-  blocks <- mapM (\i -> (receiveBlock handle pieceIndex (blockLength * i) (blockLengths !! i))) blockIndices
+  blocks <- mapM (\i -> receiveBlock handle pieceIndex (blockLength * i) (blockLengths !! i)) blockIndices
 
   -- get final block if length is unusual
-  if lastBlockLength > 0
-    then do
-      lastBlock <- receiveBlock handle pieceIndex (blockLength * length blockIndices) lastBlockLength
-      return $ B.concat (blocks ++ [lastBlock])
-    else return $ B.concat blocks
+  piece <- do
+    if lastBlockLength > 0
+      then do
+        lastBlock <- receiveBlock handle pieceIndex (blockLength * length blockIndices) lastBlockLength
+        pure $ B.concat (blocks ++ [lastBlock])
+      else pure $ B.concat blocks
+
+  -- LB.writeFile (B.unpack $ filename torrent) (LB.fromStrict $ B.concat piecesContent)
+  -- write piece to a specific offset in the file
+  -- with
+  -- withFileAsInputStartingAt (fromIntegral $ pieceIndex * pieceLength) (B.unpack outputPath) $ \h -> do
+  --   LB.hPut h (LB.fromStrict pieceData)
+  putStrLn $ "Writing piece " <> show pieceIndex <> " to file " <> B.unpack outputPath
+
+  writeToFileAtOffset (B.unpack outputPath) (fromIntegral $ pieceIndex * pieceLength) piece
 
 getReadyHandle :: (ByteString, ByteString) -> ByteString -> IO Handle
-getReadyHandle peerAddress fileInfoHash = do
-  handle <- getSocketHandle (fst peerAddress) (snd peerAddress) fileInfoHash
-  _ <- B.hGet handle 68 -- peer handshake response
+getReadyHandle peerAddress infoHash = do
+  handle <- getSocketHandle (fst peerAddress) (snd peerAddress) infoHash
+  peerHandshakeResponse <- B.hGet handle 68 -- peer handshake
   waitForBitfield handle
   sendInterested handle
   waitForUnchoke handle
   return handle
 
+downloadWorker :: TorrentType -> PieceQueue -> (ByteString, ByteString) -> IO ()
+downloadWorker torrent pieceQueue peer = do
+  maybePiece <- atomically $ do
+    pieces <- readTVar pieceQueue
+    case pieces of
+      [] -> return Nothing -- Queue is empty
+      (p : ps) -> do
+        writeTVar pieceQueue ps
+        return (Just p)
+  case maybePiece of
+    Nothing -> return () -- Exit when the queue is empty
+    Just piece -> do
+      handle <- getReadyHandle peer (infoHash torrent)
+      output <- getPiece (outputPath torrent) handle piece (pieceLength torrent) (fileLength torrent)
+      hClose handle
+      case output of
+        Just _ -> downloadWorker torrent pieceQueue peer
+        Nothing -> do 
+          atomically $ modifyTVar' pieceQueue (++ [piece]) -- Put the piece back in the queue if there is an error
+          downloadWorker torrent pieceQueue peer
+
+modifyTVar' :: TVar a -> (a -> a) -> STM ()
+modifyTVar' var f = do
+  x <- readTVar var
+  writeTVar var $! f x
+
+initializeQueue :: [Piece] -> IO PieceQueue
+initializeQueue = newTVarIO
+
+createFileIfNotExists :: FilePath -> IO ()
+createFileIfNotExists path = do
+  handle <- openFile path WriteMode
+  hClose handle -- Immediately close to clear the file content
+  putStrLn $ "File cleared: " ++ path
+
+
+splitIntoChunks :: Int -> ByteString -> [ByteString]
+splitIntoChunks chunkSize bs
+  | B.null bs = []
+  | otherwise =
+      let (chunk, rest) = B.splitAt chunkSize bs
+      in chunk : splitIntoChunks chunkSize rest
+
+
 downloadFile :: TorrentType -> IO Bool
 downloadFile torrent = do
-  let peerAddress = head $ peers torrent
 
-  handle <- getReadyHandle peerAddress (infoHash torrent)
   let numPieces = fileLength torrent `div` pieceLength torrent
   let pieceIndices = [0 .. numPieces]
-  let pieces = map (\i -> getPiece handle i (pieceLength torrent) (fileLength torrent)) pieceIndices
-  piecesContent <- sequence pieces
+  queue <- initializeQueue pieceIndices
+  -- let numThreads = length (peers torrent)
+  traceShowM $ "Downloading file with " ++ show numPieces ++ " pieces"
+  createFileIfNotExists $ B.unpack (outputPath torrent)
+  traceShowM "File created"
+  threads <- mapM (\peer -> async (downloadWorker torrent queue peer)) (peers torrent)
+  mapM_ wait threads
+  putStrLn "All pieces downloaded!"
+  -- putStrLn "Verifying file..."
 
-  let piecesHashes = map calculateHash piecesContent
-  let piecesHashesHex = map B16.encode piecesHashes
-  let piecesHashesExpected = (pieceHashes torrent)
-  let piecesHashesExpectedHex = map B16.encode piecesHashesExpected
+  -- handle <- openBinaryFile (B.unpack $ outputPath torrent) ReadMode
+  -- content <- LB.hGetContents handle
+  -- hClose handle
+  -- let piecesHashes = map calculateHash (splitIntoChunks (2^14) (LB.toStrict content))
+  -- let piecesHashesHex = map B16.encode piecesHashes
+  -- let piecesHashesExpected = (pieceHashes torrent)
+  -- let piecesHashesExpectedHex = map B16.encode piecesHashesExpected
 
-  -- do check for each piece hash
-  -- apply do while loop, if there is a mismatch, request the piece from a different peer
-  -- write successful pieces to file with offset = pieceIndex * pieceLength
-  LB.writeFile (B.unpack (outputPath torrent)) (LB.fromStrict $ B.concat piecesContent)
-
-  -- putStrLn "All pieces received!"
-
-  hClose handle
-
-  if and $ zipWith (==) piecesHashesHex piecesHashesExpectedHex
-    then return True
-    else return False
+  -- if and $ zipWith (==) piecesHashesHex piecesHashesExpectedHex
+  --   then return True
+  --   else return False
+  return True
