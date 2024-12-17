@@ -10,10 +10,14 @@ import qualified Brick.Widgets.Core as C
 import qualified Brick.Widgets.Dialog as D
 import Control.Monad (when)
 import Control.Monad.IO.Class (liftIO)
+import Data.Aeson (FromJSON (..), ToJSON (..), decode, eitherDecode, encode, object, withObject, (.:), (.=))
 import Data.ByteString.Char8 as B
+import qualified Data.ByteString.Lazy as BL
+import GHC.Generics (Generic)
 import qualified Graphics.Vty as V
 import Peer (downloadFile)
 import System.Directory as S
+import System.IO.Error (catchIOError)
 import Torrent (TorrentType (..), readTorrentFile)
 
 data Choice = Red | Blue | Green | White
@@ -37,6 +41,35 @@ data AppState = AppState
 data TextInputState = TextInputState
   { textInput :: String
   }
+
+jsonFilePath :: FilePath
+jsonFilePath = "torrents.json"
+
+saveTorrentsToFile :: [TorrentType] -> IO ()
+saveTorrentsToFile torrents = BL.writeFile jsonFilePath (encode torrents)
+
+instance ToJSON TorrentType where
+  toJSON t =
+    object
+      [ "outputPath" .= B.unpack (outputPath t),
+        "infoHash" .= B.unpack (infoHash t),
+        "pieceHashes" .= Prelude.map B.unpack (pieceHashes t),
+        "fileLength" .= fileLength t,
+        "pieceLength" .= pieceLength t,
+        "trackerUrls" .= Prelude.map B.unpack (trackerUrls t),
+        "peers" .= Prelude.map (\(ip, port) -> (B.unpack ip, B.unpack port)) (peers t)
+      ]
+
+instance FromJSON TorrentType where
+  parseJSON = withObject "TorrentType" $ \v ->
+    TorrentType
+      <$> (B.pack <$> v .: "outputPath")
+      <*> (B.pack <$> v .: "infoHash")
+      <*> (Prelude.map B.pack <$> v .: "pieceHashes")
+      <*> v .: "fileLength"
+      <*> v .: "pieceLength"
+      <*> (Prelude.map B.pack <$> v .: "trackerUrls")
+      <*> (Prelude.map (\(ip, port) -> (B.pack ip, B.pack port)) <$> v .: "peers")
 
 drawUI :: AppState -> [Widget Name]
 drawUI state =
@@ -99,6 +132,7 @@ appEvent (VtyEvent ev) = do
     then case ev of
       V.EvKey V.KEsc [] -> modify $ \s -> s {showModal = False}
       V.EvKey V.KEnter [] -> do
+        modify $ \s -> s {showModal = False}
         parsedTorrentFile <- liftIO $ readTorrentFile (B.pack (textInput (textInputState currentState)))
         result <- liftIO $ downloadFile parsedTorrentFile
         if result
@@ -114,8 +148,9 @@ appEvent (VtyEvent ev) = do
                       peers = peers parsedTorrentFile
                     }
             modify $ \s -> s {torrents = newTorrent : torrents s}
+            newState <- get
+            liftIO $ saveTorrentsToFile (torrents newState)
           else modify $ \s -> s {appContent = ["File download failed"]}
-        modify $ \s -> s {showModal = False}
       V.EvKey V.KBS [] -> modify $ \s -> s {textInputState = (textInputState s) {textInput = Prelude.init (textInput (textInputState s))}}
       V.EvKey (V.KChar c) [] -> modify $ \s -> s {textInputState = (textInputState s) {textInput = textInput (textInputState s) ++ [c]}}
       _ -> BR.continueWithoutRedraw
@@ -129,12 +164,21 @@ appEvent (VtyEvent ev) = do
       V.EvKey V.KUp [] -> modify $ \s -> s {selectedTorrentIndex = clamp 0 (Prelude.length (torrents s) - 1) (selectedTorrentIndex s - 1)}
       V.EvKey (V.KChar 'k') [] -> modify $ \s -> s {selectedTorrentIndex = clamp 0 (Prelude.length (torrents s) - 1) (selectedTorrentIndex s - 1)}
       V.EvKey (V.KChar 'd') [] -> do
-        let torrentToDelete = torrents currentState !! selectedTorrentIndex currentState
-        let filePath = B.unpack (outputPath torrentToDelete)
-        fileExists <- liftIO $ S.doesFileExist filePath
-        when fileExists $ liftIO $ S.removeFile filePath
-        modify $ \s -> s {torrents = Prelude.take (selectedTorrentIndex s) (torrents s) ++ Prelude.drop (selectedTorrentIndex s + 1) (torrents s)}
-        modify $ \s -> s {selectedTorrentIndex = clamp 0 (Prelude.length (torrents s) - 1) (selectedTorrentIndex s)}
+        currentState <- get
+        let selectedIdx = selectedTorrentIndex currentState
+        let torrentList = torrents currentState
+
+        when (selectedIdx >= 0 && selectedIdx < Prelude.length torrentList) $ do
+          let torrentToDelete = torrentList !! selectedIdx
+          let filePath = B.unpack (outputPath torrentToDelete)
+
+          fileExists <- liftIO $ S.doesFileExist filePath
+          when fileExists $ liftIO $ S.removeFile filePath
+
+          let updatedTorrents = Prelude.take selectedIdx torrentList ++ Prelude.drop (selectedIdx + 1) torrentList
+          modify $ \s -> s {torrents = updatedTorrents, selectedTorrentIndex = clamp 0 (Prelude.length updatedTorrents - 1) selectedIdx}
+
+          liftIO $ saveTorrentsToFile updatedTorrents
       _ -> do
         modify $ \s -> s {appContent = ["Invalid key", "please select a valid key"]}
 appEvent _ = BR.continueWithoutRedraw
@@ -142,11 +186,12 @@ appEvent _ = BR.continueWithoutRedraw
 initialState :: IO AppState
 initialState = do
   cwd <- S.getCurrentDirectory
+  loadedTorrents <- loadTorrentsFromFile
   return
     AppState
       { appContent = ["Choose an action."],
         textInputState = TextInputState {textInput = cwd <> "/"},
-        torrents = [],
+        torrents = loadedTorrents,
         selectedTorrentIndex = 0,
         showModal = False
       }
@@ -196,8 +241,8 @@ modalWidget True modalTextInputState =
                 modalFooter
               ]
   where
-    modalHeader = withAttr (attrName "borderAttrBlack") $ (B.hBorder)
-    modalFooter = withAttr (attrName "borderAttrBlack") $ (B.hBorder)
+    modalHeader = withAttr (attrName "borderAttrBlack") B.hBorder
+    modalFooter = withAttr (attrName "borderAttrBlack") B.hBorder
 
 textInputWidget :: TextInputState -> Widget Name
 textInputWidget state =
@@ -214,8 +259,29 @@ textInputWidget state =
             ]
         ]
   where
-    inputHeader = withAttr (attrName "borderAttr") $ (B.hBorder)
-    inputFooter = withAttr (attrName "borderAttr") $ (B.hBorder)
+    inputHeader = withAttr (attrName "borderAttr") B.hBorder
+    inputFooter = withAttr (attrName "borderAttr") B.hBorder
+
+saveTorrents :: FilePath -> [TorrentType] -> IO ()
+saveTorrents filePath torrents = BL.writeFile filePath (encode torrents)
+
+loadTorrents :: FilePath -> IO [TorrentType]
+loadTorrents filePath = do
+  fileExists <- doesFileExist filePath
+  if fileExists
+    then do
+      content <- BL.readFile filePath
+      case decode content of
+        Just torrents -> return torrents
+        Nothing -> return []
+    else return []
+
+loadTorrentsFromFile :: IO [TorrentType]
+loadTorrentsFromFile = do
+  content <- catchIOError (BL.readFile jsonFilePath) (\_ -> return "[]")
+  case eitherDecode content of
+    Left _ -> return [] -- If decoding fails, return an empty list
+    Right torrents -> return torrents
 
 main :: IO ()
 main = do
