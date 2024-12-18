@@ -30,7 +30,7 @@ data TorrentType = TorrentType
     pieceHashes :: [ByteString],
     fileLength :: Int,
     pieceLength :: Int,
-    trackerUrls :: [ByteString], -- Changed to a list
+    trackerUrl :: ByteString,
     peers :: [(ByteString, ByteString)]
   }
   deriving (Show)
@@ -61,15 +61,6 @@ addressToIPAndPort address = do
 parsePort :: ByteString -> ByteString
 parsePort port = B.pack $ show $ ord (B.head port) * 256 + ord (B.last port)
 
-decodeAnnounceList :: DecodedValue -> [ByteString]
-decodeAnnounceList decoded =
-  case decoded of
-    List sublists -> concatMap decodeSublist sublists
-    _ -> []
-  where
-    decodeSublist (List items) = map decodedToByteString items
-    decodeSublist _ = []
-
 readTorrentFile :: ByteString -> IO TorrentType
 readTorrentFile filePath = do
   fileContent <- LB.readFile $ B.unpack filePath
@@ -81,16 +72,9 @@ readTorrentFile filePath = do
   let fileName = decodedToByteString $ info ! "name"
   let pieceHashesList = getPieces $ decodedToByteString (info ! "pieces")
 
-  let trackerUrls' =
-        maybe
-          [decodedToByteString (json ! "announce")]
-          decodeAnnounceList
-          (Data.Map.lookup "announce-list" json)
+  let trackerUrl = decodedToByteString (json ! "announce")
 
-  let firstTrackerUrl = case trackerUrls' of
-        (url : _) -> url
-        [] -> error "No trackers found in torrent file"
-  let query = makeQuery json firstTrackerUrl
+  let query = makeQuery json trackerUrl
   request <- parseRequest query
   response <- httpLBS request
   let peersBytes = decodedToDictionary (decodeBencodedValue $ LB.toStrict $ getResponseBody response) ! "peers"
@@ -99,7 +83,7 @@ readTorrentFile filePath = do
   pure $
     TorrentType
       { peers = peersList,
-        trackerUrls = trackerUrls',
+        trackerUrl = trackerUrl,
         outputPath = fileName,
         infoHash = torrentInfoHash,
         pieceHashes = pieceHashesList,

@@ -56,7 +56,7 @@ instance ToJSON TorrentType where
         "pieceHashes" .= Prelude.map B.unpack (pieceHashes t),
         "fileLength" .= fileLength t,
         "pieceLength" .= pieceLength t,
-        "trackerUrls" .= Prelude.map B.unpack (trackerUrls t),
+        "trackerUrl" .= B.unpack (trackerUrl t),
         "peers" .= Prelude.map (\(ip, port) -> (B.unpack ip, B.unpack port)) (peers t)
       ]
 
@@ -68,7 +68,7 @@ instance FromJSON TorrentType where
       <*> (Prelude.map B.pack <$> v .: "pieceHashes")
       <*> v .: "fileLength"
       <*> v .: "pieceLength"
-      <*> (Prelude.map B.pack <$> v .: "trackerUrls")
+      <*> (B.pack <$> v .: "trackerUrl")
       <*> (Prelude.map (\(ip, port) -> (B.pack ip, B.pack port)) <$> v .: "peers")
 
 drawUI :: AppState -> [Widget Name]
@@ -107,7 +107,7 @@ drawUI state =
                         C.str $ "Info Hash: " ++ B.unpack (infoHash selectedTorrent),
                         C.str $ "File Length: " ++ show (fileLength selectedTorrent),
                         C.str $ "Piece Length: " ++ show (pieceLength selectedTorrent),
-                        C.str $ "Tracker URL: " ++ B.unpack (B.intercalate ", " (trackerUrls selectedTorrent))
+                        C.str $ "Tracker URL: " ++ B.unpack (trackerUrl selectedTorrent)
                       ]
                         ++ [C.str $ "Peer: " ++ B.unpack ip ++ ":" ++ B.unpack port | (ip, port) <- peers selectedTorrent]
                  in [ C.hBox [C.padRight (C.Pad 2) line]
@@ -144,7 +144,7 @@ appEvent (VtyEvent ev) = do
                       pieceHashes = pieceHashes parsedTorrentFile,
                       fileLength = fileLength parsedTorrentFile,
                       pieceLength = pieceLength parsedTorrentFile,
-                      trackerUrls = trackerUrls parsedTorrentFile,
+                      trackerUrl = trackerUrl parsedTorrentFile,
                       peers = peers parsedTorrentFile
                     }
             modify $ \s -> s {torrents = newTorrent : torrents s}
