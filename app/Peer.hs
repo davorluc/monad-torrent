@@ -4,21 +4,27 @@ module Peer
     waitForUnchoke,
     sendInterested,
     getPiece,
-    downloadFile
+    downloadFile,
   )
 where
 
+import Brick (modify, put)
 import Control.Concurrent.Async (async, wait)
+import Control.Exception (IOException, catch)
+import Control.Exception.Base (try)
 import Control.Monad
 import Data.Bits (shiftL)
 import Data.ByteString (ByteString, foldl', hPut)
+import qualified Data.ByteString as Bl
 import qualified Data.ByteString.Char8 as B
 import qualified Data.ByteString.Lazy as LB
 import Data.Char (chr, ord)
 import Data.Word (Word8)
+import Debug.Trace (trace, traceShowM)
 import Decoder (calculateHash, intToHexByteString, padWithZeros)
 import GHC.Conc.Sync
 import GHC.IO.Handle
+import GHC.IO.IOMode
 import GHC.IO.StdHandles
 import Network.Socket
   ( AddrInfo (addrAddress, addrFamily),
@@ -31,12 +37,6 @@ import Network.Socket
   )
 import System.Directory
 import Torrent
-import Brick (put, modify)
-import qualified Data.ByteString as Bl
-import Debug.Trace (trace, traceShowM)
-import Control.Exception (IOException, catch)
-import Control.Exception.Base (try)
-import GHC.IO.IOMode
 
 type Piece = Int -- Represent a piece by its index
 
@@ -119,13 +119,12 @@ receiveBlock handle pieceIndex blockOffset blockLength = do
   _ <- B.hGet handle 4 -- block begin response
   B.hGet handle blockLength
 
-
 -- Attempt to open a binary file and handle the error if it is locked
 openFileMaybe :: FilePath -> IOMode -> IO (Maybe Handle)
 openFileMaybe path mode = do
   result <- try (openBinaryFile path mode) :: IO (Either IOException Handle)
   case result of
-    Left _  -> return Nothing  -- If an IOException occurs, return Nothing
+    Left _ -> return Nothing -- If an IOException occurs, return Nothing
     Right h -> return (Just h) -- Otherwise, return Just Handle
 
 writeToFileAtOffset :: FilePath -> Integer -> ByteString -> IO (Maybe ())
@@ -201,7 +200,7 @@ downloadWorker torrent pieceQueue peer = do
       hClose handle
       case output of
         Just _ -> downloadWorker torrent pieceQueue peer
-        Nothing -> do 
+        Nothing -> do
           atomically $ modifyTVar' pieceQueue (++ [piece]) -- Put the piece back in the queue if there is an error
           downloadWorker torrent pieceQueue peer
 
@@ -219,18 +218,15 @@ createFileIfNotExists path = do
   hClose handle -- Immediately close to clear the file content
   putStrLn $ "File cleared: " ++ path
 
-
 splitIntoChunks :: Int -> ByteString -> [ByteString]
 splitIntoChunks chunkSize bs
   | B.null bs = []
   | otherwise =
       let (chunk, rest) = B.splitAt chunkSize bs
-      in chunk : splitIntoChunks chunkSize rest
-
+       in chunk : splitIntoChunks chunkSize rest
 
 downloadFile :: TorrentType -> IO Bool
 downloadFile torrent = do
-
   let numPieces = fileLength torrent `div` pieceLength torrent
   let pieceIndices = [0 .. numPieces]
   queue <- initializeQueue pieceIndices

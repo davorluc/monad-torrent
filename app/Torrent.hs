@@ -14,18 +14,22 @@ module Torrent
   )
 where
 
+import Data.Aeson (decode)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as B
 import qualified Data.ByteString.Lazy as LB
 import Data.Char (ord)
 import Data.Map (Map, lookup)
 import Data.Map.Internal ((!))
+import Data.Maybe (fromMaybe)
 import Decoder (DecodedValue (..), calculateInfoHash, decodeBencodedValue, decodedToByteString, decodedToDictionary, generateURLEncodedInfoHash, getPieces, sortInfo)
 import Network.HTTP.Simple (getResponseBody, httpLBS, parseRequest)
+import System.IO (readFile)
 import Prelude
 
 data TorrentType = TorrentType
-  { outputPath :: ByteString,
+  { fileName :: ByteString,
+    outputPath :: ByteString,
     infoHash :: ByteString,
     pieceHashes :: [ByteString],
     fileLength :: Int,
@@ -61,15 +65,24 @@ addressToIPAndPort address = do
 parsePort :: ByteString -> ByteString
 parsePort port = B.pack $ show $ ord (B.head port) * 256 + ord (B.last port)
 
+readDownloadDirectory :: IO ByteString
+readDownloadDirectory = do
+  settingsContent <- LB.readFile "settings.json"
+  let maybeSettings = decode settingsContent :: Maybe (Map String String)
+  let downloadDir = maybe "./downloads" (fromMaybe "./downloads" . Data.Map.lookup "downloadDirectory") maybeSettings
+  pure $ B.pack downloadDir
+
 readTorrentFile :: ByteString -> IO TorrentType
 readTorrentFile filePath = do
   fileContent <- LB.readFile $ B.unpack filePath
+  downloadDir <- readDownloadDirectory
   let json = decodedToDictionary $ decodeBencodedValue (B.concat $ LB.toChunks fileContent)
   let info = decodedToDictionary (json ! "info")
   let torrentInfoHash = calculateInfoHash (sortInfo info) ""
   let torrentPieceLength = read (show $ info ! "piece length") :: Int
   let torrentFileLength = read (show $ info ! "length") :: Int
   let fileName = decodedToByteString $ info ! "name"
+  let filePath = B.concat [downloadDir, fileName]
   let pieceHashesList = getPieces $ decodedToByteString (info ! "pieces")
 
   let trackerUrl = decodedToByteString (json ! "announce")
@@ -84,7 +97,8 @@ readTorrentFile filePath = do
     TorrentType
       { peers = peersList,
         trackerUrl = trackerUrl,
-        outputPath = fileName,
+        fileName = fileName,
+        outputPath = filePath,
         infoHash = torrentInfoHash,
         pieceHashes = pieceHashesList,
         fileLength = torrentFileLength,

@@ -13,6 +13,7 @@ import Control.Monad.IO.Class (liftIO)
 import Data.Aeson (FromJSON (..), ToJSON (..), decode, eitherDecode, encode, object, withObject, (.:), (.=))
 import Data.ByteString.Char8 as B
 import qualified Data.ByteString.Lazy as BL
+import qualified Data.Text.Encoding as T
 import GHC.Generics (Generic)
 import qualified Graphics.Vty as V
 import Peer (downloadFile)
@@ -51,7 +52,8 @@ saveTorrentsToFile torrents = BL.writeFile jsonFilePath (encode torrents)
 instance ToJSON TorrentType where
   toJSON t =
     object
-      [ "outputPath" .= B.unpack (outputPath t),
+      [ "fileName" .= B.unpack (fileName t),
+        "outputPath" .= B.unpack (outputPath t),
         "infoHash" .= B.unpack (infoHash t),
         "pieceHashes" .= Prelude.map B.unpack (pieceHashes t),
         "fileLength" .= fileLength t,
@@ -61,15 +63,26 @@ instance ToJSON TorrentType where
       ]
 
 instance FromJSON TorrentType where
-  parseJSON = withObject "TorrentType" $ \v ->
-    TorrentType
-      <$> (B.pack <$> v .: "outputPath")
-      <*> (B.pack <$> v .: "infoHash")
-      <*> (Prelude.map B.pack <$> v .: "pieceHashes")
-      <*> v .: "fileLength"
-      <*> v .: "pieceLength"
-      <*> (B.pack <$> v .: "trackerUrl")
-      <*> (Prelude.map (\(ip, port) -> (B.pack ip, B.pack port)) <$> v .: "peers")
+  parseJSON = withObject "TorrentType" $ \v -> do
+    fileName <- T.encodeUtf8 <$> v .: "fileName"
+    outputPath <- T.encodeUtf8 <$> v .: "ouputPath"
+    infoHash <- T.encodeUtf8 <$> v .: "infoHash"
+    pieceHashes <- Prelude.map T.encodeUtf8 <$> v .: "pieceHashes"
+    fileLength <- v .: "fileLength"
+    pieceLength <- v .: "pieceLength"
+    trackerUrl <- T.encodeUtf8 <$> v .: "trackerUrl"
+    peers <- Prelude.map (\(ip, port) -> (T.encodeUtf8 ip, T.encodeUtf8 port)) <$> v .: "peers"
+    pure $
+      TorrentType
+        { fileName = fileName,
+          outputPath = outputPath,
+          infoHash = infoHash,
+          pieceHashes = pieceHashes,
+          fileLength = fileLength,
+          pieceLength = pieceLength,
+          trackerUrl = trackerUrl,
+          peers = peers
+        }
 
 drawUI :: AppState -> [Widget Name]
 drawUI state =
@@ -86,7 +99,7 @@ drawUI state =
                   [ C.vBox
                       [ styleEntry i (selectedTorrentIndex state) $
                           C.str $
-                            B.unpack (outputPath torrent)
+                            B.unpack (fileName torrent)
                         | (i, torrent) <- Prelude.zip [0 ..] (torrents state)
                       ],
                     vBorder
@@ -103,7 +116,8 @@ drawUI state =
               else
                 let selectedTorrent = torrents state !! selectedTorrentIndex state
                     torrentLines =
-                      [ C.str $ "Output Path: " ++ B.unpack (outputPath selectedTorrent),
+                      [ C.str $ "File Name: " ++ B.unpack (fileName selectedTorrent),
+                        C.str $ "Output Path:" ++ B.unpack (outputPath selectedTorrent),
                         C.str $ "Info Hash: " ++ B.unpack (infoHash selectedTorrent),
                         C.str $ "File Length: " ++ show (fileLength selectedTorrent),
                         C.str $ "Piece Length: " ++ show (pieceLength selectedTorrent),
@@ -139,7 +153,8 @@ appEvent (VtyEvent ev) = do
           then do
             let newTorrent =
                   TorrentType
-                    { outputPath = outputPath parsedTorrentFile,
+                    { fileName = fileName parsedTorrentFile,
+                      outputPath = outputPath parsedTorrentFile,
                       infoHash = infoHash parsedTorrentFile,
                       pieceHashes = pieceHashes parsedTorrentFile,
                       fileLength = fileLength parsedTorrentFile,
@@ -170,10 +185,10 @@ appEvent (VtyEvent ev) = do
 
         when (selectedIdx >= 0 && selectedIdx < Prelude.length torrentList) $ do
           let torrentToDelete = torrentList !! selectedIdx
-          let filePath = B.unpack (outputPath torrentToDelete)
+          let filePathToDelete = B.unpack (outputPath torrentToDelete)
 
-          fileExists <- liftIO $ S.doesFileExist filePath
-          when fileExists $ liftIO $ S.removeFile filePath
+          fileExists <- liftIO $ S.doesFileExist filePathToDelete
+          when fileExists $ liftIO $ S.removeFile filePathToDelete
 
           let updatedTorrents = Prelude.take selectedIdx torrentList ++ Prelude.drop (selectedIdx + 1) torrentList
           modify $ \s -> s {torrents = updatedTorrents, selectedTorrentIndex = clamp 0 (Prelude.length updatedTorrents - 1) selectedIdx}

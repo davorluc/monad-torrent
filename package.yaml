@@ -42,6 +42,7 @@ dependencies:
 - random
 - directory
 - stm
+- text
 
 ghc-options:
 - -Wall
