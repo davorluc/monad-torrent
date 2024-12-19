@@ -65,7 +65,7 @@ instance ToJSON TorrentType where
 instance FromJSON TorrentType where
   parseJSON = withObject "TorrentType" $ \v -> do
     fileName <- T.encodeUtf8 <$> v .: "fileName"
-    outputPath <- T.encodeUtf8 <$> v .: "ouputPath"
+    outputPath <- T.encodeUtf8 <$> v .: "outputPath"
     infoHash <- T.encodeUtf8 <$> v .: "infoHash"
     pieceHashes <- Prelude.map T.encodeUtf8 <$> v .: "pieceHashes"
     fileLength <- v .: "fileLength"
@@ -201,7 +201,7 @@ appEvent _ = BR.continueWithoutRedraw
 initialState :: IO AppState
 initialState = do
   cwd <- S.getCurrentDirectory
-  loadedTorrents <- loadTorrentsFromFile
+  loadedTorrents <- loadTorrents jsonFilePath
   return
     AppState
       { appContent = ["Choose an action."],
@@ -290,13 +290,6 @@ loadTorrents filePath = do
         Just torrents -> return torrents
         Nothing -> return []
     else return []
-
-loadTorrentsFromFile :: IO [TorrentType]
-loadTorrentsFromFile = do
-  content <- catchIOError (BL.readFile jsonFilePath) (\_ -> return "[]")
-  case eitherDecode content of
-    Left _ -> return [] -- If decoding fails, return an empty list
-    Right torrents -> return torrents
 
 main :: IO ()
 main = do
