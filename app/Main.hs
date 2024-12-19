@@ -133,8 +133,8 @@ drawUI state =
         (attrName "footerAttr")
         $ C.hBox
           [ C.hCenter $ C.str "a - add torrent",
-            C.hCenter $ C.str "j/arrdown - entry down",
-            C.hCenter $ C.str "k/arrup - entry up",
+            C.hCenter $ C.str "j/arrdown - down",
+            C.hCenter $ C.str "k/arrup - up",
             C.hCenter $ C.str "d - delete file",
             C.hCenter $ C.str "q - quit"
           ]
