@@ -22,9 +22,8 @@ import Data.Char (ord)
 import Data.Map (Map, lookup)
 import Data.Map.Internal ((!))
 import Data.Maybe (fromMaybe)
-import Decoder (DecodedValue (..), calculateInfoHash, decodeBencodedValue, decodedToByteString, decodedToDictionary, generateURLEncodedInfoHash, getPieces, sortInfo)
+import Decoder (DecodedValue (..), calculateInfoHash, decodeBencodedValue, decodedToByteString, decodedToDictionary, generateURLEncodedInfoHash, getPiecesFromString, sortInfo)
 import Network.HTTP.Simple (getResponseBody, httpLBS, parseRequest)
-import System.IO (readFile)
 import Prelude
 
 data TorrentType = TorrentType
@@ -83,7 +82,7 @@ readTorrentFile filePath = do
   let torrentFileLength = read (show $ info ! "length") :: Int
   let fileName = decodedToByteString $ info ! "name"
   let filePath = B.concat [downloadDir, fileName]
-  let pieceHashesList = getPieces $ decodedToByteString (info ! "pieces")
+  let pieceHashesList = getPiecesFromString $ decodedToByteString (info ! "pieces")
 
   let trackerUrl = decodedToByteString (json ! "announce")
 

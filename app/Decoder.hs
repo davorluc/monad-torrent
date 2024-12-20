@@ -19,11 +19,10 @@ module Decoder
     decodeBencodedValue,
     sortInfo,
     toBencodedByteString,
-    getPieces,
+    getPiecesFromString,
     intToHexByteString,
     padWithZeros,
     isLetterByte,
-    makeBigEndian,
     makeQuery,
     calculateInfoHash,
     calculateHash,
@@ -151,8 +150,8 @@ toBencodedByteString (Dict dictionary) = B.singleton 'd' <> B.concat pairs <> B.
     pairList = assocs dictionary
     pairs = map pairKeyValue pairList
 
-getPieces :: ByteString -> [ByteString]
-getPieces pieces = if B.length pieces < 20 then [] else piece : getPieces rest
+getPiecesFromString :: ByteString -> [ByteString]
+getPiecesFromString pieces = if B.length pieces < 20 then [] else piece : getPiecesFromString rest
   where
     (piece, rest) = B.splitAt 20 pieces
 
@@ -195,8 +194,3 @@ padWithZeros :: ByteString -> ByteString
 padWithZeros bs
   | B.length bs >= 4 = bs -- If length is already >= 4, return the ByteString as is
   | otherwise = B.replicate (4 - B.length bs) (B.head $ B.toStrict $ LB.singleton (0 :: Word8)) `B.append` bs
-
-makeBigEndian :: ByteString -> ByteString
-makeBigEndian bs = B.concat [last', first]
-  where
-    (first, last') = B.splitAt 2 bs
