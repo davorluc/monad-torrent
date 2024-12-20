@@ -194,6 +194,18 @@ appEvent (VtyEvent ev) = do
           modify $ \s -> s {torrents = updatedTorrents, selectedTorrentIndex = clamp 0 (Prelude.length updatedTorrents - 1) selectedIdx}
 
           liftIO $ saveTorrentsToFile updatedTorrents
+      V.EvKey (V.KChar 'e') [] -> do
+        currentState <- get
+        let selectedIdx = selectedTorrentIndex currentState
+        let torrentList = torrents currentState
+
+        when (selectedIdx >= 0 && selectedIdx < Prelude.length torrentList) $ do
+          let torrentToDelete = torrentList !! selectedIdx
+
+          let updatedTorrents = Prelude.take selectedIdx torrentList ++ Prelude.drop (selectedIdx + 1) torrentList
+          modify $ \s -> s {torrents = updatedTorrents, selectedTorrentIndex = clamp 0 (Prelude.length updatedTorrents - 1) selectedIdx}
+
+          liftIO $ saveTorrentsToFile updatedTorrents
       _ -> do
         modify $ \s -> s {appContent = ["Invalid key", "please select a valid key"]}
 appEvent _ = BR.continueWithoutRedraw
