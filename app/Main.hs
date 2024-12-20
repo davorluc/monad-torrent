@@ -1,3 +1,4 @@
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Main (main) where
@@ -36,6 +37,8 @@ data AppState = AppState
     textInputState :: TextInputState,
     showModal :: Bool,
     showKeybinds :: Bool,
+    showSetting :: Bool,
+    currentDownloadPath :: DownloadPathState,
     selectedTorrentIndex :: Int,
     torrents :: [TorrentType]
   }
@@ -43,6 +46,11 @@ data AppState = AppState
 data TextInputState = TextInputState
   { textInput :: String
   }
+
+data DownloadPathState = DownloadPathState
+  { downloadInput :: String
+  }
+  deriving (Show, Generic)
 
 jsonFilePath :: FilePath
 jsonFilePath = "torrents.json"
@@ -85,13 +93,23 @@ instance FromJSON TorrentType where
           peers = peers
         }
 
+instance FromJSON DownloadPathState where
+  parseJSON = withObject "DownloadPathState" $ \v -> do
+    downloadInput <- v .: "downloadDirectory"
+    return DownloadPathState {downloadInput = downloadInput}
+
+instance ToJSON DownloadPathState where
+  toJSON state =
+    object
+      ["downloadDirectory" .= downloadInput state]
+
 drawUI :: AppState -> [Widget Name]
 drawUI state =
-  [C.vBox [header, aside, input, keybinds, footer]]
+  [C.vBox [header, aside, input, keybinds, download, footer]]
   where
     header = withAttr (attrName "headerAttr") $ C.hCenter $ C.str "monad-torrent"
     aside =
-      if showModal state || showKeybinds state
+      if showModal state || showKeybinds state || showSetting state
         then C.emptyWidget
         else
           C.hBox
@@ -130,6 +148,7 @@ drawUI state =
                     ]
     input = modalWidget (showModal state) (textInputState state)
     keybinds = keybindWidget (showKeybinds state)
+    download = downloadPathWidget (showSetting state) (currentDownloadPath state)
     footer =
       withAttr
         (attrName "footerAttr")
@@ -141,83 +160,101 @@ drawUI state =
 appEvent :: BrickEvent Name e -> EventM Name AppState ()
 appEvent (VtyEvent ev) = do
   currentState <- get
-  if showModal currentState
+  if showSetting currentState
     then case ev of
-      V.EvKey V.KEsc [] -> modify $ \s -> s {showModal = False}
+      V.EvKey V.KEsc [] -> modify $ \s -> s {showSetting = False}
       V.EvKey V.KEnter [] -> do
-        modify $ \s -> s {showModal = False}
-        parsedTorrentFile <- liftIO $ readTorrentFile (B.pack (textInput (textInputState currentState)))
-        result <- liftIO $ downloadFile parsedTorrentFile
-        if result
-          then do
-            let newTorrent =
-                  TorrentType
-                    { fileName = fileName parsedTorrentFile,
-                      outputPath = outputPath parsedTorrentFile,
-                      infoHash = infoHash parsedTorrentFile,
-                      pieceHashes = pieceHashes parsedTorrentFile,
-                      fileLength = fileLength parsedTorrentFile,
-                      pieceLength = pieceLength parsedTorrentFile,
-                      trackerUrl = trackerUrl parsedTorrentFile,
-                      peers = peers parsedTorrentFile
-                    }
-            modify $ \s -> s {torrents = newTorrent : torrents s}
-            newState <- get
-            liftIO $ saveTorrentsToFile (torrents newState)
-          else modify $ \s -> s {appContent = ["File download failed"]}
-      V.EvKey V.KBS [] -> modify $ \s -> s {textInputState = (textInputState s) {textInput = Prelude.init (textInput (textInputState s))}}
-      V.EvKey (V.KChar c) [] -> modify $ \s -> s {textInputState = (textInputState s) {textInput = textInput (textInputState s) ++ [c]}}
+        let newDownloadPath = downloadInput (currentDownloadPath currentState)
+        liftIO $ BL.writeFile "settings.json" (encode (DownloadPathState newDownloadPath))
+        modify $ \s -> s {showSetting = False, appContent = ["Download path updated successfully"]}
+      V.EvKey V.KBS [] -> modify $ \s -> s {currentDownloadPath = (currentDownloadPath s) {downloadInput = Prelude.init (downloadInput (currentDownloadPath s))}}
+      V.EvKey (V.KChar c) [] -> modify $ \s -> s {currentDownloadPath = (currentDownloadPath s) {downloadInput = downloadInput (currentDownloadPath s) ++ [c]}}
       _ -> BR.continueWithoutRedraw
     else
-      if showKeybinds currentState
+      if showModal currentState
         then case ev of
-          V.EvKey V.KEsc [] -> modify $ \s -> s {showKeybinds = False}
+          V.EvKey V.KEsc [] -> modify $ \s -> s {showModal = False}
+          V.EvKey V.KEnter [] -> do
+            modify $ \s -> s {showModal = False}
+            parsedTorrentFile <- liftIO $ readTorrentFile (B.pack (textInput (textInputState currentState)))
+            result <- liftIO $ downloadFile parsedTorrentFile
+            if result
+              then do
+                let newTorrent =
+                      TorrentType
+                        { fileName = fileName parsedTorrentFile,
+                          outputPath = outputPath parsedTorrentFile,
+                          infoHash = infoHash parsedTorrentFile,
+                          pieceHashes = pieceHashes parsedTorrentFile,
+                          fileLength = fileLength parsedTorrentFile,
+                          pieceLength = pieceLength parsedTorrentFile,
+                          trackerUrl = trackerUrl parsedTorrentFile,
+                          peers = peers parsedTorrentFile
+                        }
+                modify $ \s -> s {torrents = newTorrent : torrents s}
+                newState <- get
+                liftIO $ saveTorrentsToFile (torrents newState)
+              else modify $ \s -> s {appContent = ["File download failed"]}
+          V.EvKey V.KBS [] -> modify $ \s -> s {textInputState = (textInputState s) {textInput = Prelude.init (textInput (textInputState s))}}
+          V.EvKey (V.KChar c) [] -> modify $ \s -> s {textInputState = (textInputState s) {textInput = textInput (textInputState s) ++ [c]}}
           _ -> BR.continueWithoutRedraw
-        else case ev of
-          V.EvKey (V.KChar 'q') [] -> do
-            BR.halt
-          V.EvKey (V.KChar 'a') [] -> do
-            modify $ \s -> s {showModal = not $ showModal s}
-          V.EvKey V.KDown [] -> modify $ \s -> s {selectedTorrentIndex = clamp 0 (Prelude.length (torrents s) - 1) (selectedTorrentIndex s + 1)}
-          V.EvKey (V.KChar 'j') [] -> modify $ \s -> s {selectedTorrentIndex = clamp 0 (Prelude.length (torrents s) - 1) (selectedTorrentIndex s + 1)}
-          V.EvKey V.KUp [] -> modify $ \s -> s {selectedTorrentIndex = clamp 0 (Prelude.length (torrents s) - 1) (selectedTorrentIndex s - 1)}
-          V.EvKey (V.KChar 'k') [] -> modify $ \s -> s {selectedTorrentIndex = clamp 0 (Prelude.length (torrents s) - 1) (selectedTorrentIndex s - 1)}
-          V.EvKey (V.KChar 'd') [] -> do
-            currentState <- get
-            let selectedIdx = selectedTorrentIndex currentState
-            let torrentList = torrents currentState
+        else
+          if showKeybinds currentState
+            then case ev of
+              V.EvKey V.KEsc [] -> modify $ \s -> s {showKeybinds = False}
+              _ -> BR.continueWithoutRedraw
+            else case ev of
+              V.EvKey (V.KChar 'q') [] -> do
+                BR.halt
+              V.EvKey (V.KChar 'a') [] -> do
+                modify $ \s -> s {showModal = not $ showModal s}
+              V.EvKey V.KDown [] -> modify $ \s -> s {selectedTorrentIndex = clamp 0 (Prelude.length (torrents s) - 1) (selectedTorrentIndex s + 1)}
+              V.EvKey (V.KChar 'j') [] -> modify $ \s -> s {selectedTorrentIndex = clamp 0 (Prelude.length (torrents s) - 1) (selectedTorrentIndex s + 1)}
+              V.EvKey V.KUp [] -> modify $ \s -> s {selectedTorrentIndex = clamp 0 (Prelude.length (torrents s) - 1) (selectedTorrentIndex s - 1)}
+              V.EvKey (V.KChar 'k') [] -> modify $ \s -> s {selectedTorrentIndex = clamp 0 (Prelude.length (torrents s) - 1) (selectedTorrentIndex s - 1)}
+              V.EvKey (V.KChar 'd') [] -> do
+                currentState <- get
+                let selectedIdx = selectedTorrentIndex currentState
+                let torrentList = torrents currentState
 
-            when (selectedIdx >= 0 && selectedIdx < Prelude.length torrentList) $ do
-              let torrentToDelete = torrentList !! selectedIdx
-              let filePathToDelete = B.unpack (outputPath torrentToDelete)
+                when (selectedIdx >= 0 && selectedIdx < Prelude.length torrentList) $ do
+                  let torrentToDelete = torrentList !! selectedIdx
+                  let filePathToDelete = B.unpack (outputPath torrentToDelete)
 
-              fileExists <- liftIO $ S.doesFileExist filePathToDelete
-              when fileExists $ liftIO $ S.removeFile filePathToDelete
+                  fileExists <- liftIO $ S.doesFileExist filePathToDelete
+                  when fileExists $ liftIO $ S.removeFile filePathToDelete
 
-              let updatedTorrents = Prelude.take selectedIdx torrentList ++ Prelude.drop (selectedIdx + 1) torrentList
-              modify $ \s -> s {torrents = updatedTorrents, selectedTorrentIndex = clamp 0 (Prelude.length updatedTorrents - 1) selectedIdx}
+                  let updatedTorrents = Prelude.take selectedIdx torrentList ++ Prelude.drop (selectedIdx + 1) torrentList
+                  modify $ \s -> s {torrents = updatedTorrents, selectedTorrentIndex = clamp 0 (Prelude.length updatedTorrents - 1) selectedIdx}
 
-              liftIO $ saveTorrentsToFile updatedTorrents
-          V.EvKey (V.KChar 'e') [] -> do
-            currentState <- get
-            let selectedIdx = selectedTorrentIndex currentState
-            let torrentList = torrents currentState
+                  liftIO $ saveTorrentsToFile updatedTorrents
+              V.EvKey (V.KChar 'e') [] -> do
+                currentState <- get
+                let selectedIdx = selectedTorrentIndex currentState
+                let torrentList = torrents currentState
 
-            when (selectedIdx >= 0 && selectedIdx < Prelude.length torrentList) $ do
-              let updatedTorrents = Prelude.take selectedIdx torrentList ++ Prelude.drop (selectedIdx + 1) torrentList
-              modify $ \s -> s {torrents = updatedTorrents, selectedTorrentIndex = clamp 0 (Prelude.length updatedTorrents - 1) selectedIdx}
+                when (selectedIdx >= 0 && selectedIdx < Prelude.length torrentList) $ do
+                  let updatedTorrents = Prelude.take selectedIdx torrentList ++ Prelude.drop (selectedIdx + 1) torrentList
+                  modify $ \s -> s {torrents = updatedTorrents, selectedTorrentIndex = clamp 0 (Prelude.length updatedTorrents - 1) selectedIdx}
 
-              liftIO $ saveTorrentsToFile updatedTorrents
-          V.EvKey (V.KChar 'h') [] -> do
-            modify $ \s -> s {showKeybinds = not $ showKeybinds s}
-          _ -> do
-            modify $ \s -> s {appContent = ["Invalid key", "please select a valid key"]}
+                  liftIO $ saveTorrentsToFile updatedTorrents
+              V.EvKey (V.KChar 'h') [] -> do
+                modify $ \s -> s {showKeybinds = not $ showKeybinds s}
+              V.EvKey (V.KChar 's') [] -> do
+                modify $ \s -> s {showSetting = not $ showSetting s}
+              _ -> do
+                modify $ \s -> s {appContent = ["Invalid key", "please select a valid key"]}
 appEvent _ = BR.continueWithoutRedraw
 
 initialState :: IO AppState
 initialState = do
   cwd <- S.getCurrentDirectory
   loadedTorrents <- loadTorrents jsonFilePath
+  settings <- BL.readFile "settings.json" -- Assuming the file path for settings
+  let settingsDecoded = case decode settings of
+        Just (DownloadPathState {downloadInput = path}) -> path
+        Nothing -> "./" -- Default path if decoding fails
+  let showSettingFlag = if Prelude.null settingsDecoded then True else False
   return
     AppState
       { appContent = ["Choose an action."],
@@ -225,6 +262,8 @@ initialState = do
         torrents = loadedTorrents,
         showKeybinds = False,
         selectedTorrentIndex = 0,
+        showSetting = showSettingFlag,
+        currentDownloadPath = DownloadPathState {downloadInput = settingsDecoded},
         showModal = False
       }
 
@@ -269,7 +308,7 @@ modalWidget True modalTextInputState =
           B.borderWithLabel (str "add torrent") $
             C.vBox
               [ modalHeader,
-                C.vCenter $ C.hCenter $ C.hBox [C.vBox [textInputWidget modalTextInputState]],
+                C.vCenter $ C.hCenter $ C.hBox [C.hBox [textInputWidget modalTextInputState]],
                 modalFooter
               ]
   where
@@ -322,6 +361,41 @@ keybinds =
       C.str "h - help: shows this menu",
       C.str "q - quit: quit the application"
     ]
+
+downloadPathWidget :: Bool -> DownloadPathState -> Widget Name
+downloadPathWidget False _ = C.emptyWidget
+downloadPathWidget True currentDownloadPath =
+  C.vCenter $
+    C.hCenter $
+      C.vLimitPercent 80 $
+        C.hLimitPercent 90 $
+          B.borderWithLabel (str "Enter desired download directory") $
+            C.vBox
+              [ modalHeader,
+                C.vCenter $ C.hCenter $ C.hBox [C.vBox [downloadPathInputWidget currentDownloadPath]],
+                modalFooter
+              ]
+  where
+    modalHeader = withAttr (attrName "borderAttrBlack") B.hBorder
+    modalFooter = withAttr (attrName "borderAttrBlack") B.hBorder
+
+downloadPathInputWidget :: DownloadPathState -> Widget Name
+downloadPathInputWidget state =
+  B.borderWithLabel (C.str "download directory") $
+    hLimitPercent 95 $
+      C.vBox
+        [ inputHeader,
+          C.hBox
+            [ C.withAttr (attrName "inputAttr") $
+                C.vBox
+                  [ C.str (downloadInput state),
+                    inputFooter
+                  ]
+            ]
+        ]
+  where
+    inputHeader = withAttr (attrName "borderAttr") B.hBorder
+    inputFooter = withAttr (attrName "borderAttr") B.hBorder
 
 saveTorrents :: FilePath -> [TorrentType] -> IO ()
 saveTorrents filePath torrents = BL.writeFile filePath (encode torrents)
