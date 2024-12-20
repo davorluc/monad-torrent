@@ -8,20 +8,17 @@ module Peer
   )
 where
 
-import Brick (modify, put)
 import Control.Concurrent.Async (async, wait)
 import Control.Exception (IOException, catch)
 import Control.Exception.Base (try)
 import Control.Monad
 import Data.Bits (shiftL)
 import Data.ByteString (ByteString, foldl', hPut)
-import qualified Data.ByteString as Bl
 import qualified Data.ByteString.Char8 as B
 import qualified Data.ByteString.Lazy as LB
 import Data.Char (chr, ord)
 import Data.Word (Word8)
-import Debug.Trace (trace, traceShowM)
-import Decoder (calculateHash, intToHexByteString, padWithZeros)
+import Decoder ( intToHexByteString, padWithZeros)
 import GHC.Conc.Sync
 import GHC.IO.Handle
 import GHC.IO.IOMode
@@ -170,14 +167,13 @@ getPiece outputPath handle pieceIndex pieceLength fileLength = do
   -- with
   -- withFileAsInputStartingAt (fromIntegral $ pieceIndex * pieceLength) (B.unpack outputPath) $ \h -> do
   --   LB.hPut h (LB.fromStrict pieceData)
-  putStrLn $ "Writing piece " <> show pieceIndex <> " to file " <> B.unpack outputPath
 
   writeToFileAtOffset (B.unpack outputPath) (fromIntegral $ pieceIndex * pieceLength) piece
 
 getReadyHandle :: (ByteString, ByteString) -> ByteString -> IO Handle
 getReadyHandle peerAddress infoHash = do
   handle <- getSocketHandle (fst peerAddress) (snd peerAddress) infoHash
-  peerHandshakeResponse <- B.hGet handle 68 -- peer handshake
+  _ <- B.hGet handle 68 -- peer handshake
   waitForBitfield handle
   sendInterested handle
   waitForUnchoke handle
@@ -214,9 +210,12 @@ initializeQueue = newTVarIO
 
 createFileIfNotExists :: FilePath -> IO ()
 createFileIfNotExists path = do
+  createDirectoryIfMissing True (takeDirectory path)
   handle <- openFile path WriteMode
   hClose handle -- Immediately close to clear the file content
-  putStrLn $ "File cleared: " ++ path
+  
+takeDirectory :: FilePath -> FilePath
+takeDirectory = reverse . dropWhile (/= '/') . reverse
 
 splitIntoChunks :: Int -> ByteString -> [ByteString]
 splitIntoChunks chunkSize bs
@@ -231,9 +230,7 @@ downloadFile torrent = do
   let pieceIndices = [0 .. numPieces]
   queue <- initializeQueue pieceIndices
   -- let numThreads = length (peers torrent)
-  -- traceShowM $ "Downloading file with " ++ show numPieces ++ " pieces"
   createFileIfNotExists $ B.unpack (outputPath torrent)
-  -- traceShowM "File created"
   threads <- mapM (\peer -> async (downloadWorker torrent queue peer)) (peers torrent)
   mapM_ wait threads
   -- putStrLn "Verifying file..."

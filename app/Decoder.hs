@@ -56,7 +56,6 @@ import Text.Megaparsec
   )
 import Text.Megaparsec.Byte (char)
 import qualified Text.Megaparsec.Byte.Lexer as L
-import Debug.Trace (trace)
 
 data DecodedValue = Int Int | ByteString ByteString | List [DecodedValue] | Dict (Map ByteString DecodedValue) deriving (Eq, Ord)
 
