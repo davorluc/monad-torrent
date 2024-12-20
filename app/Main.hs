@@ -253,8 +253,8 @@ initialState = do
   settings <- BL.readFile "settings.json" -- Assuming the file path for settings
   let settingsDecoded = case decode settings of
         Just (DownloadPathState {downloadInput = path}) -> path
-        Nothing -> "./" -- Default path if decoding fails
-  let showSettingFlag = if Prelude.null settingsDecoded then True else False
+        Nothing -> "./"
+  let showSettingFlag = settingsDecoded == "./"
   return
     AppState
       { appContent = ["Choose an action."],
@@ -354,11 +354,13 @@ keybinds :: Widget Name
 keybinds =
   C.vBox
     [ C.str "a - add torrent: add a torrent to the download list",
+      C.str "s - open settings",
       C.str "j/arrdown - down: navigate down",
       C.str "k/arrup - up: navigate up",
       C.str "d - delete file: delete file from monad-torrent list and file system",
       C.str "e - expunge file: delete file from monad-torrent list",
       C.str "h - help: shows this menu",
+      C.str "esc - close an opened window",
       C.str "q - quit: quit the application"
     ]
 
