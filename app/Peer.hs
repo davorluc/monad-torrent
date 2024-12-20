@@ -9,7 +9,7 @@ module Peer
 where
 
 import Control.Concurrent.Async (async, wait)
-import Control.Exception (IOException, catch)
+import Control.Exception (IOException)
 import Control.Exception.Base (try)
 import Control.Monad
 import Data.Bits (shiftL)
@@ -35,9 +35,9 @@ import Network.Socket
 import System.Directory
 import Torrent
 
-type Piece = Int -- Represent a piece by its index
+type Piece = Int
 
-type PieceQueue = TVar [Piece] -- A thread-safe queue of pieces
+type PieceQueue = TVar [Piece]
 
 getSocketHandle :: ByteString -> ByteString -> ByteString -> IO Handle
 getSocketHandle ip port fileInfoHash = do
@@ -207,13 +207,6 @@ createFileIfNotExists path = do
 
 takeDirectory :: FilePath -> FilePath
 takeDirectory = reverse . dropWhile (/= '/') . reverse
-
-splitIntoChunks :: Int -> ByteString -> [ByteString]
-splitIntoChunks chunkSize bs
-  | B.null bs = []
-  | otherwise =
-      let (chunk, rest) = B.splitAt chunkSize bs
-       in chunk : splitIntoChunks chunkSize rest
 
 downloadFile :: TorrentType -> IO Bool
 downloadFile torrent = do
