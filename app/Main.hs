@@ -11,15 +11,13 @@ import qualified Brick.Widgets.Core as C
 import qualified Brick.Widgets.Dialog as D
 import Control.Monad (when)
 import Control.Monad.IO.Class (liftIO)
-import Data.Aeson (FromJSON (..), ToJSON (..), decode, eitherDecode, encode, object, withObject, (.:), (.=))
+import Data.Aeson (FromJSON (..), ToJSON (..), decode, encode, object, withObject, (.:), (.=))
 import Data.ByteString.Char8 as B
 import qualified Data.ByteString.Lazy as BL
-import qualified Data.Text.Encoding as T
 import GHC.Generics (Generic)
 import qualified Graphics.Vty as V
 import Peer (downloadFile)
 import System.Directory as S
-import System.IO.Error (catchIOError)
 import Torrent (TorrentType (..), readTorrentFile)
 
 data Choice = Red | Blue | Green | White
@@ -56,47 +54,12 @@ jsonFilePath :: FilePath
 jsonFilePath = "torrents.json"
 
 saveTorrentsToFile :: [TorrentType] -> IO ()
-saveTorrentsToFile torrents = BL.writeFile jsonFilePath (encode torrents)
-
-instance ToJSON TorrentType where
-  toJSON t =
-    object
-      [ "fileName" .= B.unpack (fileName t),
-        "outputPath" .= B.unpack (outputPath t),
-        "infoHash" .= B.unpack (infoHash t),
-        "pieceHashes" .= Prelude.map B.unpack (pieceHashes t),
-        "fileLength" .= fileLength t,
-        "pieceLength" .= pieceLength t,
-        "trackerUrl" .= B.unpack (trackerUrl t),
-        "peers" .= Prelude.map (\(ip, port) -> (B.unpack ip, B.unpack port)) (peers t)
-      ]
-
-instance FromJSON TorrentType where
-  parseJSON = withObject "TorrentType" $ \v -> do
-    fileName <- T.encodeUtf8 <$> v .: "fileName"
-    outputPath <- T.encodeUtf8 <$> v .: "outputPath"
-    infoHash <- T.encodeUtf8 <$> v .: "infoHash"
-    pieceHashes <- Prelude.map T.encodeUtf8 <$> v .: "pieceHashes"
-    fileLength <- v .: "fileLength"
-    pieceLength <- v .: "pieceLength"
-    trackerUrl <- T.encodeUtf8 <$> v .: "trackerUrl"
-    peers <- Prelude.map (\(ip, port) -> (T.encodeUtf8 ip, T.encodeUtf8 port)) <$> v .: "peers"
-    pure $
-      TorrentType
-        { fileName = fileName,
-          outputPath = outputPath,
-          infoHash = infoHash,
-          pieceHashes = pieceHashes,
-          fileLength = fileLength,
-          pieceLength = pieceLength,
-          trackerUrl = trackerUrl,
-          peers = peers
-        }
+saveTorrentsToFile torrentList = BL.writeFile jsonFilePath (encode torrentList)
 
 instance FromJSON DownloadPathState where
   parseJSON = withObject "DownloadPathState" $ \v -> do
-    downloadInput <- v .: "downloadDirectory"
-    return DownloadPathState {downloadInput = downloadInput}
+    input <- v .: "downloadDirectory"
+    return DownloadPathState {downloadInput = input}
 
 instance ToJSON DownloadPathState where
   toJSON state =
@@ -105,7 +68,7 @@ instance ToJSON DownloadPathState where
 
 drawUI :: AppState -> [Widget Name]
 drawUI state =
-  [C.vBox [header, aside, input, keybinds, download, footer]]
+  [C.vBox [header, aside, input, keybindsWidget, download, footer]]
   where
     header = withAttr (attrName "headerAttr") $ C.hCenter $ C.str "monad-torrent"
     aside =
@@ -147,7 +110,7 @@ drawUI state =
                       | line <- torrentLines
                     ]
     input = modalWidget (showModal state) (textInputState state)
-    keybinds = keybindWidget (showKeybinds state)
+    keybindsWidget = keybindWidget (showKeybinds state)
     download = downloadPathWidget (showSetting state) (currentDownloadPath state)
     footer =
       withAttr
@@ -213,9 +176,9 @@ appEvent (VtyEvent ev) = do
               V.EvKey V.KUp [] -> modify $ \s -> s {selectedTorrentIndex = clamp 0 (Prelude.length (torrents s) - 1) (selectedTorrentIndex s - 1)}
               V.EvKey (V.KChar 'k') [] -> modify $ \s -> s {selectedTorrentIndex = clamp 0 (Prelude.length (torrents s) - 1) (selectedTorrentIndex s - 1)}
               V.EvKey (V.KChar 'd') [] -> do
-                currentState <- get
-                let selectedIdx = selectedTorrentIndex currentState
-                let torrentList = torrents currentState
+                deleteState <- get
+                let selectedIdx = selectedTorrentIndex deleteState
+                let torrentList = torrents deleteState
 
                 when (selectedIdx >= 0 && selectedIdx < Prelude.length torrentList) $ do
                   let torrentToDelete = torrentList !! selectedIdx
@@ -229,9 +192,9 @@ appEvent (VtyEvent ev) = do
 
                   liftIO $ saveTorrentsToFile updatedTorrents
               V.EvKey (V.KChar 'e') [] -> do
-                currentState <- get
-                let selectedIdx = selectedTorrentIndex currentState
-                let torrentList = torrents currentState
+                expungeState <- get
+                let selectedIdx = selectedTorrentIndex expungeState
+                let torrentList = torrents expungeState
 
                 when (selectedIdx >= 0 && selectedIdx < Prelude.length torrentList) $ do
                   let updatedTorrents = Prelude.take selectedIdx torrentList ++ Prelude.drop (selectedIdx + 1) torrentList
@@ -250,7 +213,7 @@ initialState :: IO AppState
 initialState = do
   cwd <- S.getCurrentDirectory
   loadedTorrents <- loadTorrents jsonFilePath
-  settings <- BL.readFile "settings.json" -- Assuming the file path for settings
+  settings <- BL.readFile "settings.json"
   let settingsDecoded = case decode settings of
         Just (DownloadPathState {downloadInput = path}) -> path
         Nothing -> "./"
@@ -366,7 +329,7 @@ keybinds =
 
 downloadPathWidget :: Bool -> DownloadPathState -> Widget Name
 downloadPathWidget False _ = C.emptyWidget
-downloadPathWidget True currentDownloadPath =
+downloadPathWidget True path =
   C.vCenter $
     C.hCenter $
       C.vLimitPercent 80 $
@@ -374,7 +337,7 @@ downloadPathWidget True currentDownloadPath =
           B.borderWithLabel (str "Enter desired download directory") $
             C.vBox
               [ modalHeader,
-                C.vCenter $ C.hCenter $ C.hBox [C.vBox [downloadPathInputWidget currentDownloadPath]],
+                C.vCenter $ C.hCenter $ C.hBox [C.vBox [downloadPathInputWidget path]],
                 modalFooter
               ]
   where
@@ -399,9 +362,6 @@ downloadPathInputWidget state =
     inputHeader = withAttr (attrName "borderAttr") B.hBorder
     inputFooter = withAttr (attrName "borderAttr") B.hBorder
 
-saveTorrents :: FilePath -> [TorrentType] -> IO ()
-saveTorrents filePath torrents = BL.writeFile filePath (encode torrents)
-
 loadTorrents :: FilePath -> IO [TorrentType]
 loadTorrents filePath = do
   fileExists <- doesFileExist filePath
@@ -409,7 +369,7 @@ loadTorrents filePath = do
     then do
       content <- BL.readFile filePath
       case decode content of
-        Just torrents -> return torrents
+        Just torrentList -> return torrentList
         Nothing -> return []
     else return []
 
