@@ -18,7 +18,7 @@ import qualified Data.ByteString.Char8 as B
 import qualified Data.ByteString.Lazy as LB
 import Data.Char (chr, ord)
 import Data.Word (Word8)
-import Decoder ( intToHexByteString, padWithZeros)
+import Decoder (intToHexByteString, padWithZeros)
 import GHC.Conc.Sync
 import GHC.IO.Handle
 import GHC.IO.IOMode
@@ -82,7 +82,6 @@ waitForX handle x = do
 
 sendInterested :: Handle -> IO ()
 sendInterested handle = do
-  -- TODO use Megaparsec to construct message
   B.hPut handle $ B.concat [padWithZeros $ B.toStrict $ LB.singleton (1 :: Word8), B.toStrict $ LB.singleton (2 :: Word8)]
   hFlush handle
 
@@ -95,7 +94,6 @@ hexByteStringToInt = foldl' step 0
 
 requestBlock :: Handle -> Int -> Int -> Int -> IO ()
 requestBlock handle pieceIndex blockIndex blockLength = do
-  -- TODO use Megaparsec to construct message
   B.hPut handle $
     B.concat
       [ padWithZeros $ B.toStrict $ LB.singleton (13 :: Word8),
@@ -108,7 +106,6 @@ requestBlock handle pieceIndex blockIndex blockLength = do
 
 receiveBlock :: Handle -> Int -> Int -> Int -> IO ByteString
 receiveBlock handle pieceIndex blockOffset blockLength = do
-  -- print $ "Requesting block " <> show (blockOffset) <> " of piece " <> show pieceIndex <> " with length " <> show blockLength
   requestBlock handle pieceIndex blockOffset blockLength
 
   _ <- waitForX handle 7 -- message length
@@ -162,12 +159,6 @@ getPiece outputPath handle pieceIndex pieceLength fileLength = do
         pure $ B.concat (blocks ++ [lastBlock])
       else pure $ B.concat blocks
 
-  -- LB.writeFile (B.unpack $ filename torrent) (LB.fromStrict $ B.concat piecesContent)
-  -- write piece to a specific offset in the file
-  -- with
-  -- withFileAsInputStartingAt (fromIntegral $ pieceIndex * pieceLength) (B.unpack outputPath) $ \h -> do
-  --   LB.hPut h (LB.fromStrict pieceData)
-
   writeToFileAtOffset (B.unpack outputPath) (fromIntegral $ pieceIndex * pieceLength) piece
 
 getReadyHandle :: (ByteString, ByteString) -> ByteString -> IO Handle
@@ -213,7 +204,7 @@ createFileIfNotExists path = do
   createDirectoryIfMissing True (takeDirectory path)
   handle <- openFile path WriteMode
   hClose handle -- Immediately close to clear the file content
-  
+
 takeDirectory :: FilePath -> FilePath
 takeDirectory = reverse . dropWhile (/= '/') . reverse
 
@@ -229,21 +220,8 @@ downloadFile torrent = do
   let numPieces = fileLength torrent `div` pieceLength torrent
   let pieceIndices = [0 .. numPieces]
   queue <- initializeQueue pieceIndices
-  -- let numThreads = length (peers torrent)
   createFileIfNotExists $ B.unpack (outputPath torrent)
   threads <- mapM (\peer -> async (downloadWorker torrent queue peer)) (peers torrent)
   mapM_ wait threads
-  -- putStrLn "Verifying file..."
 
-  -- handle <- openBinaryFile (B.unpack $ outputPath torrent) ReadMode
-  -- content <- LB.hGetContents handle
-  -- hClose handle
-  -- let piecesHashes = map calculateHash (splitIntoChunks (2^14) (LB.toStrict content))
-  -- let piecesHashesHex = map B16.encode piecesHashes
-  -- let piecesHashesExpected = (pieceHashes torrent)
-  -- let piecesHashesExpectedHex = map B16.encode piecesHashesExpected
-
-  -- if and $ zipWith (==) piecesHashesHex piecesHashesExpectedHex
-  --   then return True
-  --   else return False
   return True
