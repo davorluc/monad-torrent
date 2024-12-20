@@ -35,6 +35,7 @@ data AppState = AppState
   { appContent :: [String],
     textInputState :: TextInputState,
     showModal :: Bool,
+    showKeybinds :: Bool,
     selectedTorrentIndex :: Int,
     torrents :: [TorrentType]
   }
@@ -86,11 +87,11 @@ instance FromJSON TorrentType where
 
 drawUI :: AppState -> [Widget Name]
 drawUI state =
-  [C.vBox [header, aside, testModal, footer]]
+  [C.vBox [header, aside, input, keybinds, footer]]
   where
     header = withAttr (attrName "headerAttr") $ C.hCenter $ C.str "monad-torrent"
     aside =
-      if showModal state
+      if showModal state || showKeybinds state
         then C.emptyWidget
         else
           C.hBox
@@ -127,15 +128,13 @@ drawUI state =
                  in [ C.hBox [C.padRight (C.Pad 2) line]
                       | line <- torrentLines
                     ]
-    testModal = modalWidget (showModal state) (textInputState state)
+    input = modalWidget (showModal state) (textInputState state)
+    keybinds = keybindWidget (showKeybinds state)
     footer =
       withAttr
         (attrName "footerAttr")
         $ C.hBox
-          [ C.hCenter $ C.str "a - add torrent",
-            C.hCenter $ C.str "j/arrdown - down",
-            C.hCenter $ C.str "k/arrup - up",
-            C.hCenter $ C.str "d - delete file",
+          [ C.hCenter $ C.str "h - help",
             C.hCenter $ C.str "q - quit"
           ]
 
@@ -169,45 +168,50 @@ appEvent (VtyEvent ev) = do
       V.EvKey V.KBS [] -> modify $ \s -> s {textInputState = (textInputState s) {textInput = Prelude.init (textInput (textInputState s))}}
       V.EvKey (V.KChar c) [] -> modify $ \s -> s {textInputState = (textInputState s) {textInput = textInput (textInputState s) ++ [c]}}
       _ -> BR.continueWithoutRedraw
-    else case ev of
-      V.EvKey (V.KChar 'q') [] -> do
-        BR.halt
-      V.EvKey (V.KChar 'a') [] -> do
-        modify $ \s -> s {showModal = not $ showModal s}
-      V.EvKey V.KDown [] -> modify $ \s -> s {selectedTorrentIndex = clamp 0 (Prelude.length (torrents s) - 1) (selectedTorrentIndex s + 1)}
-      V.EvKey (V.KChar 'j') [] -> modify $ \s -> s {selectedTorrentIndex = clamp 0 (Prelude.length (torrents s) - 1) (selectedTorrentIndex s + 1)}
-      V.EvKey V.KUp [] -> modify $ \s -> s {selectedTorrentIndex = clamp 0 (Prelude.length (torrents s) - 1) (selectedTorrentIndex s - 1)}
-      V.EvKey (V.KChar 'k') [] -> modify $ \s -> s {selectedTorrentIndex = clamp 0 (Prelude.length (torrents s) - 1) (selectedTorrentIndex s - 1)}
-      V.EvKey (V.KChar 'd') [] -> do
-        currentState <- get
-        let selectedIdx = selectedTorrentIndex currentState
-        let torrentList = torrents currentState
+    else
+      if showKeybinds currentState
+        then case ev of
+          V.EvKey V.KEsc [] -> modify $ \s -> s {showKeybinds = False}
+          _ -> BR.continueWithoutRedraw
+        else case ev of
+          V.EvKey (V.KChar 'q') [] -> do
+            BR.halt
+          V.EvKey (V.KChar 'a') [] -> do
+            modify $ \s -> s {showModal = not $ showModal s}
+          V.EvKey V.KDown [] -> modify $ \s -> s {selectedTorrentIndex = clamp 0 (Prelude.length (torrents s) - 1) (selectedTorrentIndex s + 1)}
+          V.EvKey (V.KChar 'j') [] -> modify $ \s -> s {selectedTorrentIndex = clamp 0 (Prelude.length (torrents s) - 1) (selectedTorrentIndex s + 1)}
+          V.EvKey V.KUp [] -> modify $ \s -> s {selectedTorrentIndex = clamp 0 (Prelude.length (torrents s) - 1) (selectedTorrentIndex s - 1)}
+          V.EvKey (V.KChar 'k') [] -> modify $ \s -> s {selectedTorrentIndex = clamp 0 (Prelude.length (torrents s) - 1) (selectedTorrentIndex s - 1)}
+          V.EvKey (V.KChar 'd') [] -> do
+            currentState <- get
+            let selectedIdx = selectedTorrentIndex currentState
+            let torrentList = torrents currentState
 
-        when (selectedIdx >= 0 && selectedIdx < Prelude.length torrentList) $ do
-          let torrentToDelete = torrentList !! selectedIdx
-          let filePathToDelete = B.unpack (outputPath torrentToDelete)
+            when (selectedIdx >= 0 && selectedIdx < Prelude.length torrentList) $ do
+              let torrentToDelete = torrentList !! selectedIdx
+              let filePathToDelete = B.unpack (outputPath torrentToDelete)
 
-          fileExists <- liftIO $ S.doesFileExist filePathToDelete
-          when fileExists $ liftIO $ S.removeFile filePathToDelete
+              fileExists <- liftIO $ S.doesFileExist filePathToDelete
+              when fileExists $ liftIO $ S.removeFile filePathToDelete
 
-          let updatedTorrents = Prelude.take selectedIdx torrentList ++ Prelude.drop (selectedIdx + 1) torrentList
-          modify $ \s -> s {torrents = updatedTorrents, selectedTorrentIndex = clamp 0 (Prelude.length updatedTorrents - 1) selectedIdx}
+              let updatedTorrents = Prelude.take selectedIdx torrentList ++ Prelude.drop (selectedIdx + 1) torrentList
+              modify $ \s -> s {torrents = updatedTorrents, selectedTorrentIndex = clamp 0 (Prelude.length updatedTorrents - 1) selectedIdx}
 
-          liftIO $ saveTorrentsToFile updatedTorrents
-      V.EvKey (V.KChar 'e') [] -> do
-        currentState <- get
-        let selectedIdx = selectedTorrentIndex currentState
-        let torrentList = torrents currentState
+              liftIO $ saveTorrentsToFile updatedTorrents
+          V.EvKey (V.KChar 'e') [] -> do
+            currentState <- get
+            let selectedIdx = selectedTorrentIndex currentState
+            let torrentList = torrents currentState
 
-        when (selectedIdx >= 0 && selectedIdx < Prelude.length torrentList) $ do
-          let torrentToDelete = torrentList !! selectedIdx
+            when (selectedIdx >= 0 && selectedIdx < Prelude.length torrentList) $ do
+              let updatedTorrents = Prelude.take selectedIdx torrentList ++ Prelude.drop (selectedIdx + 1) torrentList
+              modify $ \s -> s {torrents = updatedTorrents, selectedTorrentIndex = clamp 0 (Prelude.length updatedTorrents - 1) selectedIdx}
 
-          let updatedTorrents = Prelude.take selectedIdx torrentList ++ Prelude.drop (selectedIdx + 1) torrentList
-          modify $ \s -> s {torrents = updatedTorrents, selectedTorrentIndex = clamp 0 (Prelude.length updatedTorrents - 1) selectedIdx}
-
-          liftIO $ saveTorrentsToFile updatedTorrents
-      _ -> do
-        modify $ \s -> s {appContent = ["Invalid key", "please select a valid key"]}
+              liftIO $ saveTorrentsToFile updatedTorrents
+          V.EvKey (V.KChar 'h') [] -> do
+            modify $ \s -> s {showKeybinds = not $ showKeybinds s}
+          _ -> do
+            modify $ \s -> s {appContent = ["Invalid key", "please select a valid key"]}
 appEvent _ = BR.continueWithoutRedraw
 
 initialState :: IO AppState
@@ -219,6 +223,7 @@ initialState = do
       { appContent = ["Choose an action."],
         textInputState = TextInputState {textInput = cwd <> "/"},
         torrents = loadedTorrents,
+        showKeybinds = False,
         selectedTorrentIndex = 0,
         showModal = False
       }
@@ -288,6 +293,35 @@ textInputWidget state =
   where
     inputHeader = withAttr (attrName "borderAttr") B.hBorder
     inputFooter = withAttr (attrName "borderAttr") B.hBorder
+
+keybindWidget :: Bool -> Widget Name
+keybindWidget False = C.emptyWidget
+keybindWidget True =
+  C.vCenter $
+    C.hCenter $
+      C.vLimitPercent 80 $
+        C.hLimitPercent 90 $
+          B.borderWithLabel (str "keybinds") $
+            C.vBox
+              [ modalHeader,
+                C.vCenter $ C.hCenter $ C.hBox [C.vBox [keybinds]],
+                modalFooter
+              ]
+  where
+    modalHeader = withAttr (attrName "borderAttrBlack") B.hBorder
+    modalFooter = withAttr (attrName "borderAttrBlack") B.hBorder
+
+keybinds :: Widget Name
+keybinds =
+  C.vBox
+    [ C.str "a - add torrent: add a torrent to the download list",
+      C.str "j/arrdown - down: navigate down",
+      C.str "k/arrup - up: navigate up",
+      C.str "d - delete file: delete file from monad-torrent list and file system",
+      C.str "e - expunge file: delete file from monad-torrent list",
+      C.str "h - help: shows this menu",
+      C.str "q - quit: quit the application"
+    ]
 
 saveTorrents :: FilePath -> [TorrentType] -> IO ()
 saveTorrents filePath torrents = BL.writeFile filePath (encode torrents)
