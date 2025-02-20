@@ -1,6 +1,6 @@
 # monad-torrent
 
-A simple torrent client written in Haskell using the BRIKS library
+A simple torrent client written in Haskell using the BRICK library
 
 Useful commands:
 
